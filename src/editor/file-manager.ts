@@ -75,7 +75,7 @@ export class FileManager {
 	}
 
 	private fetchFolderFiles(): void {
-		const folder = (this.options.folderPath ?? "").replace(/\/+$/, "");
+		const folder = (this.options.folderPath ?? "").replace(/^\/+|\/+$/g, "");
 		const all = this.options.app.vault.getMarkdownFiles().filter((f) => {
 			if (!folder) return true;
 			return f.path.startsWith(`${folder}/`) || f.path === folder;
@@ -226,7 +226,7 @@ export class FileManager {
 
 	public fileCreate(file: TFile): void {
 		if (this.options.selectionMode === "folder") {
-			const folder = (this.options.folderPath ?? "").replace(/\/+$/, "");
+			const folder = (this.options.folderPath ?? "").replace(/^\/+|\/+$/g, "");
 			if (folder && !file.path.startsWith(`${folder}/`)) return;
 		} else if (this.options.selectionMode === "daily") {
 			const g = this.options.granularity;

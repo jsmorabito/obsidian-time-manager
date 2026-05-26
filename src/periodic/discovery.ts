@@ -11,7 +11,10 @@ function resolvedFormat(config: PeriodicConfig, granularity: Granularity): strin
 }
 
 function resolvedFolder(config: PeriodicConfig): string {
-	return (config.folder ?? "").replace(/\/+$/, "");
+	// Strip both leading and trailing slashes. Obsidian vault paths are always
+	// relative (e.g. "Daily/2024-01-01.md"), so a user-entered "/Daily" must
+	// become "Daily" before we can match with startsWith().
+	return (config.folder ?? "").replace(/^\/+|\/+$/g, "");
 }
 
 /**
