@@ -2,7 +2,7 @@ import { ItemView, WorkspaceLeaf } from "obsidian";
 import type TimeManagerPlugin from "../main";
 import SessionsViewSvelte from "./SessionsView.svelte";
 
-export const TIME_MANAGER_SESSIONS_VIEW = "time-manager-sessions-view";
+export const TIME_MANAGER_SESSIONS_VIEW = "obsidian-time-tools-sessions-view";
 
 export class SessionsView extends ItemView {
 	plugin: TimeManagerPlugin;

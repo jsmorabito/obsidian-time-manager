@@ -15,7 +15,7 @@ import type { CustomRange, SelectionMode, TimeField, TimeRange } from "./types";
 import { CustomRangeModal } from "./CustomRangeModal";
 import { SelectFolderModal, SelectTagModal } from "./SelectTargetModal";
 
-export const TIME_MANAGER_EDITOR_VIEW = "time-manager-editor-view";
+export const TIME_MANAGER_EDITOR_VIEW = "obsidian-time-tools-editor-view";
 
 export class DailyNoteView extends ItemView {
 	view!: DailyNoteEditorView;

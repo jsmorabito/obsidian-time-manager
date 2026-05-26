@@ -121,10 +121,10 @@ export async function getTemplateContents(
 		return templateFile ? vault.cachedRead(templateFile) : "";
 	} catch (err) {
 		console.error(
-			`Time Manager: failed to read template '${normalizedTemplatePath}'`,
+			`Obsidian Time Tools: failed to read template '${normalizedTemplatePath}'`,
 			err
 		);
-		new Notice("Time Manager: failed to read note template");
+		new Notice("Obsidian Time Tools: failed to read note template");
 		return "";
 	}
 }

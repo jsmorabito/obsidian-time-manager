@@ -2,7 +2,7 @@
  * Migration from Obsidian's built-in Daily Notes core plugin.
  *
  * On first load, if the core plugin has a format/folder/template configured
- * and Time Manager's daily settings are still at defaults, we offer to import
+ * and Obsidian Time Tools' daily settings are still at defaults, we offer to import
  * them. We only ask once (guarded by settings.migratedFromDailyNotes).
  */
 import { Modal, Notice, Setting } from "obsidian";
@@ -56,7 +56,7 @@ export async function maybeMigrateFromDailyNotesCore(
 		return;
 	}
 
-	// Check if Time Manager's daily config is still default (don't clobber manual config).
+	// Check if Obsidian Time Tools' daily config is still default (don't clobber manual config).
 	const day = plugin.settings.day;
 	const isDefault =
 		day.format === DEFAULT_DAILY_NOTE_FORMAT && !day.folder && !day.templatePath;
@@ -82,7 +82,7 @@ class MigrationModal extends Modal {
 		contentEl.createEl("h2", { text: "Import Daily Notes settings" });
 		contentEl.createEl("p", {
 			text:
-				"Time Manager found your existing Daily Notes core plugin configuration. " +
+				"Obsidian Time Tools found your existing Daily Notes core plugin configuration. " +
 				"Would you like to import it so your notes are found correctly?",
 		});
 
@@ -104,7 +104,7 @@ class MigrationModal extends Modal {
 						if (this.core.template) this.plugin.settings.day.templatePath = this.core.template;
 						this.plugin.settings.migratedFromDailyNotes = true;
 						await this.plugin.saveSettings();
-						new Notice("Time Manager: Daily Notes settings imported.");
+						new Notice("Obsidian Time Tools: Daily Notes settings imported.");
 						this.close();
 					})
 			)

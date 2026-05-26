@@ -69,7 +69,7 @@ export default class TimeManagerPlugin extends Plugin {
 
 		this.addCommand({
 			id: "open-multi-note-editor",
-			name: "Open multi-note editor",
+			name: "Open time note view",
 			callback: () => this.openEditorView(),
 		});
 
@@ -203,7 +203,7 @@ export default class TimeManagerPlugin extends Plugin {
 		}
 		this.editorRibbon = this.addRibbonIcon(
 			"calendar-range",
-			"Open multi-note editor",
+			"Open time note view",
 			() => this.openEditorView()
 		);
 	}

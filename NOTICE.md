@@ -1,6 +1,6 @@
 # Third-party notices
 
-Time Manager incorporates code derived from the following MIT-licensed projects. Their original copyright notices are reproduced here in accordance with their license terms.
+Obsidian Time Tools incorporates code derived from the following MIT-licensed projects. Their original copyright notices are reproduced here in accordance with their license terms.
 
 ---
 
@@ -72,4 +72,4 @@ Files adapted from this project: `src/editor/leafView.ts`, `src/editor/workspace
 
 ## obsidian-hover-editor (via Daily Notes Editor)
 
-`src/editor/leafView.ts` carries an attribution comment in its header noting that the embedded-leaf approach originated in <https://github.com/nothingislost/obsidian-hover-editor>, also MIT-licensed. Daily Notes Editor adapted it first; Time Manager inherits the further adaptation.
+`src/editor/leafView.ts` carries an attribution comment in its header noting that the embedded-leaf approach originated in <https://github.com/nothingislost/obsidian-hover-editor>, also MIT-licensed. Daily Notes Editor adapted it first; Obsidian Time Tools inherits the further adaptation.

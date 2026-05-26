@@ -26,6 +26,7 @@
 
 	let renderedFiles: TFile[] = [];
 	let filteredFiles: TFile[] = [];
+	let totalFileCount = 0;
 	let visibleNotes: Set<string> = new Set();
 
 	// Toolbar state

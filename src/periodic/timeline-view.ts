@@ -10,7 +10,7 @@ import type TimeManagerPlugin from "../main";
 import { findInPeriodic, getPeriodicNote, openPeriodicNote } from "./api";
 import { displayConfigs, granularities } from "./types";
 
-export const TIME_MANAGER_TIMELINE_VIEW = "time-manager-timeline-view";
+export const TIME_MANAGER_TIMELINE_VIEW = "obsidian-time-tools-timeline-view";
 
 export class TimelineView extends ItemView {
 	plugin: TimeManagerPlugin;

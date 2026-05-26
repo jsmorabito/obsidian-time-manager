@@ -1,12 +1,12 @@
-# Time Manager — agent context
+# Obsidian Time Tools — agent context
 
-This is the working document for AI agents working on `obsidian-time-manager`. Read this before touching any file. General Obsidian plugin conventions live in `AGENTS.md`; this file covers what is specific to this codebase.
+This is the working document for AI agents working on `obsidian-time-tools`. Read this before touching any file. General Obsidian plugin conventions live in `AGENTS.md`; this file covers what is specific to this codebase.
 
 ---
 
 ## What this plugin is
 
-**obsidian-time-manager** merges two upstream MIT plugins into one cohesive package:
+**obsidian-time-tools** merges two upstream MIT plugins into one cohesive package:
 
 - [`liamcain/obsidian-periodic-notes`](https://github.com/liamcain/obsidian-periodic-notes) — daily / weekly / monthly / quarterly / yearly note management
 - [`quorafind/Obsidian-Daily-Notes-Editor`](https://github.com/quorafind/Obsidian-Daily-Notes-Editor) — scrollable multi-note editor view
@@ -119,8 +119,8 @@ The multi-note editor (`DailyNoteView` / `DailyNoteEditorView.svelte`) has three
 
 | Constant | Type string | Class |
 |---|---|---|
-| `TIME_MANAGER_EDITOR_VIEW` | `"time-manager-editor-view"` | `DailyNoteView` |
-| `TIME_MANAGER_TIMELINE_VIEW` | `"time-manager-timeline-view"` | `TimelineView` |
+| `TIME_MANAGER_EDITOR_VIEW` | `"obsidian-time-tools-editor-view"` | `DailyNoteView` |
+| `TIME_MANAGER_TIMELINE_VIEW` | `"obsidian-time-tools-timeline-view"` | `TimelineView` |
 
 Both are registered in `main.ts` `onload()` and detached in `onunload()`.
 

@@ -219,7 +219,7 @@ export class FileManager {
 			this.filterFilesByRange();
 			return file;
 		} catch (err) {
-			console.error("Time Manager: createNewDailyNote failed", err);
+			console.error("Obsidian Time Tools: createNewDailyNote failed", err);
 			return null;
 		}
 	}

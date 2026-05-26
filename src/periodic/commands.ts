@@ -25,7 +25,7 @@ export function registerPeriodicCommands(plugin: TimeManagerPlugin): void {
 			callback: () =>
 				openPeriodicNote(plugin, granularity, window.moment()).catch((err) => {
 					console.error(err);
-					new Notice(`Time Manager: failed to open ${config.relativeUnit}'s note`);
+					new Notice(`Obsidian Time Tools: failed to open ${config.relativeUnit}'s note`);
 				}),
 		});
 
@@ -73,7 +73,7 @@ export async function ensureTodaysDailyNote(
 	try {
 		return await createPeriodicNote(plugin, "day", today);
 	} catch (err) {
-		console.error("Time Manager: ensureTodaysDailyNote failed", err);
+		console.error("Obsidian Time Tools: ensureTodaysDailyNote failed", err);
 		return null;
 	}
 }

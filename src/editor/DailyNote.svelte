@@ -86,7 +86,7 @@
 				}
 			}, 400);
 		} catch (error) {
-			console.error("Time Manager: error creating leaf view", error);
+			console.error("Obsidian Time Tools: error creating leaf view", error);
 		}
 	}
 
@@ -104,7 +104,7 @@
 			if (editorEl) editorEl.empty();
 			rendered = false;
 		} catch (error) {
-			console.error("Time Manager: error unloading editor", error);
+			console.error("Obsidian Time Tools: error unloading editor", error);
 		}
 	}
 

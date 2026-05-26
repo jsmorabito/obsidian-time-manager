@@ -1,4 +1,4 @@
-# Time Manager
+# Obsidian Time Tools
 
 A time-aware note-management plugin for Obsidian. Create and open daily, weekly, and monthly periodic notes, and review them together in a scrollable multi-note editor view.
 
@@ -29,10 +29,10 @@ See [docs/deferred-features.md](./docs/deferred-features.md) for the full list o
 
 This plugin is not yet in the community catalog.
 
-1. Clone or download into `<Vault>/.obsidian/plugins/obsidian-time-manager/`.
+1. Clone or download into `<Vault>/.obsidian/plugins/obsidian-time-tools/`.
 2. `npm install`
 3. `npm run build`
-4. Reload Obsidian → **Settings → Community plugins** → enable **Time Manager**.
+4. Reload Obsidian → **Settings → Community plugins** → enable **Obsidian Time Tools**.
 
 ## Development
 
@@ -42,7 +42,7 @@ This plugin is not yet in the community catalog.
 
 ## Credits and license
 
-Time Manager itself is MIT-licensed (see `LICENSE`). It includes code adapted from:
+Obsidian Time Tools itself is MIT-licensed (see `LICENSE`). It includes code adapted from:
 
 - Periodic Notes © 2021 Liam Cain (MIT)
 - Daily Notes Editor © 2022 Boninall / Quorafind (MIT)
