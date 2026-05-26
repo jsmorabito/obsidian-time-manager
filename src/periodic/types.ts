@@ -1,9 +1,6 @@
-// Periodic-notes scope for MVP: day / week / month.
-// Quarter and year are tracked in docs/deferred-features.md and intentionally
-// excluded from the type union to keep settings and command registration tight.
-export type Granularity = "day" | "week" | "month";
+export type Granularity = "day" | "week" | "month" | "quarter" | "year";
 
-export const granularities: Granularity[] = ["day", "week", "month"];
+export const granularities: Granularity[] = ["day", "week", "month", "quarter", "year"];
 
 export interface PeriodicConfig {
 	enabled: boolean;
@@ -37,5 +34,17 @@ export const displayConfigs: Record<Granularity, DisplayConfig> = {
 		relativeUnit: "this month",
 		labelOpenPresent: "Open this month's note",
 		icon: "calendar-month",
+	},
+	quarter: {
+		periodicity: "quarterly",
+		relativeUnit: "this quarter",
+		labelOpenPresent: "Open this quarter's note",
+		icon: "calendar-range",
+	},
+	year: {
+		periodicity: "yearly",
+		relativeUnit: "this year",
+		labelOpenPresent: "Open this year's note",
+		icon: "calendar",
 	},
 };

@@ -1,6 +1,4 @@
 // Ported from quorafind/Obsidian-Daily-Notes-Editor (MIT).
-// MVP scope: daily mode only. Folder/tag mode, custom date range, and the
-// "save preset" workflow are tracked in docs/deferred-features.md.
 import {
 	ItemView,
 	Menu,
@@ -11,7 +9,11 @@ import {
 } from "obsidian";
 import type TimeManagerPlugin from "../main";
 import DailyNoteEditorView from "./DailyNoteEditorView.svelte";
-import type { TimeField, TimeRange } from "./types";
+import type { Granularity } from "../periodic/types";
+import { displayConfigs, granularities } from "../periodic/types";
+import type { CustomRange, SelectionMode, TimeField, TimeRange } from "./types";
+import { CustomRangeModal } from "./CustomRangeModal";
+import { SelectFolderModal, SelectTagModal } from "./SelectTargetModal";
 
 export const TIME_MANAGER_EDITOR_VIEW = "time-manager-editor-view";
 
@@ -22,6 +24,11 @@ export class DailyNoteView extends ItemView {
 
 	selectedRange: TimeRange = "all";
 	timeField: TimeField = "mtime";
+	granularity: Granularity = "day";
+	selectionMode: SelectionMode = "daily";
+	folderPath = "";
+	tag = "";
+	customRange: CustomRange | undefined = undefined;
 
 	constructor(leaf: WorkspaceLeaf, plugin: TimeManagerPlugin) {
 		super(leaf);
@@ -36,11 +43,36 @@ export class DailyNoteView extends ItemView {
 	}
 
 	getDisplayText(): string {
-		return "Daily notes";
+		if (this.selectionMode === "folder") return `Folder: ${this.folderPath || "…"}`;
+		if (this.selectionMode === "tag")    return `Tag: ${this.tag || "…"}`;
+		const label = displayConfigs[this.granularity].periodicity;
+		return label.charAt(0).toUpperCase() + label.slice(1) + " notes";
 	}
 
 	getIcon(): string {
 		return "calendar-range";
+	}
+
+	/** Called by the plugin after settings are saved to push the updated enabled-granularities list into the toolbar. */
+	refreshSettings() {
+		const enabled = granularities.filter(
+			(g) => g === "day" || this.plugin.settings[g].enabled
+		);
+		this.view?.$set({ enabledGranularities: enabled });
+	}
+
+	setGranularity(g: Granularity) {
+		this.granularity = g;
+		this.view?.$set({ granularity: g });
+		this.app.workspace.trigger("layout-change");
+	}
+
+	setSelectionMode(mode: SelectionMode, pathOrTag = "") {
+		this.selectionMode = mode;
+		if (mode === "folder") this.folderPath = pathOrTag;
+		if (mode === "tag")    this.tag        = pathOrTag;
+		this.view?.$set({ selectionMode: mode, folderPath: this.folderPath, tag: this.tag });
+		this.app.workspace.trigger("layout-change");
 	}
 
 	private onFileCreate = (file: TAbstractFile) => {
@@ -61,29 +93,54 @@ export class DailyNoteView extends ItemView {
 		this.view?.$set({ timeField: field });
 	}
 
+	setCustomRange(cr: CustomRange) {
+		this.customRange = cr;
+		this.selectedRange = "custom";
+		this.view?.$set({ selectedRange: "custom", customRange: cr });
+	}
+
 	getState(): Record<string, unknown> {
 		const state = super.getState();
 		return {
 			...state,
-			timeField: this.timeField,
+			timeField:     this.timeField,
 			selectedRange: this.selectedRange,
+			granularity:   this.granularity,
+			selectionMode: this.selectionMode,
+			folderPath:    this.folderPath,
+			tag:           this.tag,
 		};
 	}
 
 	async setState(state: unknown, result?: any): Promise<void> {
 		await super.setState(state, result);
 		if (state && typeof state === "object" && !this.view) {
-			const cs = state as { timeField?: TimeField; selectedRange?: TimeRange };
-			if (cs.timeField) this.timeField = cs.timeField;
+			const cs = state as {
+				timeField?: TimeField;
+				selectedRange?: TimeRange;
+				granularity?: Granularity;
+				selectionMode?: SelectionMode;
+				folderPath?: string;
+				tag?: string;
+			};
+			if (cs.timeField)     this.timeField     = cs.timeField;
 			if (cs.selectedRange) this.selectedRange = cs.selectedRange;
+			if (cs.granularity)   this.granularity   = cs.granularity;
+			if (cs.selectionMode) this.selectionMode = cs.selectionMode;
+			if (cs.folderPath)    this.folderPath    = cs.folderPath;
+			if (cs.tag)           this.tag           = cs.tag;
 
 			this.view = new DailyNoteEditorView({
 				target: this.contentEl,
 				props: {
-					plugin: this.plugin,
-					leaf: this.leaf,
+					plugin:        this.plugin,
+					leaf:          this.leaf,
 					selectedRange: this.selectedRange,
-					timeField: this.timeField,
+					timeField:     this.timeField,
+					granularity:   this.granularity,
+					selectionMode: this.selectionMode,
+					folderPath:    this.folderPath,
+					tag:           this.tag,
 				},
 			});
 
@@ -98,6 +155,41 @@ export class DailyNoteView extends ItemView {
 	async onOpen(): Promise<void> {
 		this.scope.register(["Mod"], "f", () => {
 			// No-op: prevent the global find handler from hijacking inside our view.
+		});
+
+		// Source selector — switches between daily / folder / tag modes.
+		this.addAction("folder-open", "Select source", (e) => {
+			const menu = new Menu();
+
+			menu.addItem((item) => {
+				item.setTitle("Daily notes");
+				item.setChecked(this.selectionMode === "daily");
+				item.onClick(() => this.setSelectionMode("daily"));
+			});
+
+			menu.addSeparator();
+
+			menu.addItem((item) => {
+				item.setTitle("Browse by folder…");
+				item.setChecked(this.selectionMode === "folder");
+				item.onClick(() => {
+					new SelectFolderModal(this.app, (folder) => {
+						this.setSelectionMode("folder", folder.path);
+					}).open();
+				});
+			});
+
+			menu.addItem((item) => {
+				item.setTitle("Browse by tag…");
+				item.setChecked(this.selectionMode === "tag");
+				item.onClick(() => {
+					new SelectTagModal(this.app, (tag) => {
+						this.setSelectionMode("tag", tag);
+					}).open();
+				});
+			});
+
+			menu.showAtMouseEvent(e as MouseEvent);
 		});
 
 		this.addAction("clock", "Select time field", (e) => {
@@ -127,13 +219,52 @@ export class DailyNoteView extends ItemView {
 					item.onClick(() => this.setSelectedRange(range));
 				});
 			};
-			add("All notes", "all");
-			add("This week", "week");
-			add("This month", "month");
-			add("This year", "year");
-			add("Last week", "last-week");
-			add("Last month", "last-month");
-			add("Last year", "last-year");
+			add("All notes",    "all");
+			add("This week",    "week");
+			add("This month",   "month");
+			add("This quarter", "quarter");
+			add("This year",    "year");
+			add("Last week",    "last-week");
+			add("Last month",   "last-month");
+			add("Last quarter", "last-quarter");
+			add("Last year",    "last-year");
+			menu.addSeparator();
+			menu.addItem((item) => {
+				item.setTitle("Custom range…");
+				item.setChecked(this.selectedRange === "custom");
+				item.onClick(() => {
+					new CustomRangeModal(this.app, (cr) => this.setCustomRange(cr)).open();
+				});
+			});
+			menu.showAtMouseEvent(e as MouseEvent);
+		});
+
+		// Presets menu.
+		this.addAction("bookmark", "Select preset", (e) => {
+			const menu = new Menu();
+			const presets = this.plugin.settings.presets;
+			if (presets.length === 0) {
+				menu.addItem((item) => {
+					item.setTitle("No presets saved");
+					item.setDisabled(true);
+				});
+			} else {
+				for (const preset of presets) {
+					menu.addItem((item) => {
+						item.setTitle(preset.name);
+						item.onClick(() => {
+							if (preset.selectionMode === "folder") {
+								this.setSelectionMode("folder", preset.folderPath ?? "");
+							} else if (preset.selectionMode === "tag") {
+								this.setSelectionMode("tag", preset.tag ?? "");
+							} else {
+								this.setSelectionMode("daily");
+							}
+							if (preset.timeRange) this.setSelectedRange(preset.timeRange as TimeRange);
+						});
+					});
+				}
+			}
 			menu.showAtMouseEvent(e as MouseEvent);
 		});
 
@@ -165,7 +296,10 @@ export class DailyNoteView extends ItemView {
 		if (this.view) {
 			this.view.check();
 			this.view.tick();
-			this.view.$set({ selectedRange: this.selectedRange });
+			this.view.$set({
+				selectedRange: this.selectedRange,
+				granularity:   this.granularity,
+			});
 		}
 	}
 }

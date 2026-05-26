@@ -1,35 +1,48 @@
 # Deferred features
 
-Features from the two upstream plugins that were intentionally excluded from Time Manager 0.1.0 (the MVP), grouped by source. Each entry is a candidate for a future release — they were skipped to keep the merge tight and the surface area reviewable, not because they're unwanted.
+Features from the two upstream plugins that were intentionally excluded from Time Manager 0.1.0 (the MVP), grouped by source. Each entry is tagged with a milestone decision:
+
+- **Keep – next milestone**: targeted for the next release
+- **Later**: revisit after the next milestone ships
+- **Skip**: not wanted; won't implement
+- **Table it**: defer indefinitely until a concrete trigger (e.g. user reports sluggishness)
+
+---
+
+## Cross-cutting decisions
+
+| Question | Decision |
+|---|---|
+| Settings UI | **Stay plain** — keep `PluginSettingTab`; no Svelte 4 dashboard |
+| Editor scope | **All granularities** — editor should accept weekly/monthly/quarterly notes once granularities are well-tested |
+| Periodic-notes cache | **Table it** — rescan on each query; add a cache only when someone reports sluggishness |
+
+---
 
 ## From obsidian-periodic-notes
 
-- **Quarterly and yearly periodic notes.** The current `Granularity` union is `day | week | month`. Restoring the wider union touches `src/periodic/types.ts`, `src/periodic/constants.ts`, settings UI, and command registration.
-- **Calendar Sets.** Upstream supports multiple independent sets of periodic-note configurations, with an active set and a switcher. Time Manager has exactly one configuration per granularity. Restoring this requires a settings shape change (`calendarSets: CalendarSet[]`, `activeCalendarSet: string`) and a manager class.
-- **Svelte settings dashboard.** Upstream has a rich Svelte 3 dashboard with a router, breadcrumbs, and per-period detail pages. Time Manager uses a plain `PluginSettingTab`. If we want a richer settings UI, we'd build it in Svelte 4 from scratch since Svelte 3 is end-of-life.
-- **Periodic-notes cache.** Upstream maintains an in-memory cache keyed by calendar set / granularity / date and listens to vault events to keep it warm. Time Manager rescans `vault.getMarkdownFiles()` on each query. For very large vaults this becomes a bottleneck — when it matters, restore something like the upstream `cache.ts`.
-- **Timeline complication.** Sidebar component showing adjacent periodic notes for the active file.
-- **Quick-switcher integrations.** The "calendar set switcher", "related files switcher", and "file options switcher" patch into Obsidian's quick switcher.
-- **NLDates integration.** Command that uses the Natural Language Dates plugin to open a periodic note by parsing a date expression.
-- **Auto-open on startup.** Upstream can open a configured periodic note on layout-ready. We support this for the editor view, not for a specific periodic note. Easy to add later.
-- **Migration from the legacy Daily Notes core plugin.** Upstream detects an existing Daily Notes core configuration and ports the format/folder/template into its own settings. Worth adding to make adoption painless.
-- **File menu integrations** — adding "Open related periodic note" / etc to the file context menu.
-- **Locale override.** A setting to force a moment locale different from Obsidian's. The first-week-of-year and week-start values come from the locale.
+- **Quarterly and yearly periodic notes.** *(Keep – next milestone)* The current `Granularity` union is `day | week | month`. Restoring the wider union touches `src/periodic/types.ts`, `src/periodic/constants.ts`, settings UI, and command registration.
+- **Calendar Sets.** *(Skip)* Upstream supports multiple independent sets of periodic-note configurations, with an active set and a switcher. Adds significant complexity with no current use case.
+- **Svelte settings dashboard.** *(Skip)* Time Manager uses a plain `PluginSettingTab` and will stay that way. Revisit in Svelte 4 only if settings outgrow a flat list.
+- **Periodic-notes cache.** *(Table it)* Upstream maintains an in-memory cache keyed by calendar set / granularity / date and listens to vault events to keep it warm. Time Manager rescans `vault.getMarkdownFiles()` on each query — fast enough until a user reports sluggishness.
+- **Timeline complication.** *(Keep – next milestone)* Sidebar component showing adjacent periodic notes for the active file (e.g. "← May 24 | May 26 →" plus surrounding week note). New `ItemView` + Svelte component.
+- **Quick-switcher integrations.** *(Keep – next milestone)* The "related files switcher" and "file options switcher" via `SuggestModal`. (Calendar-set switcher is dropped — Calendar Sets are skipped.)
+- **NLDates integration.** *(Later)* Command that uses the Natural Language Dates plugin to open a periodic note by parsing a date expression. Add if users request it.
+- **Auto-open on startup.** *(Keep – next milestone)* Extend existing editor-view startup behavior to also support opening a specific granularity note on layout-ready.
+- **Migration from the legacy Daily Notes core plugin.** *(Keep – next milestone, high priority)* Detect an existing Daily Notes core configuration and port the format/folder/template into Time Manager settings on first load.
+- **File menu integrations.** *(Keep – next milestone)* Add "Open related periodic note" and granularity-specific items to the file context menu for files that match a periodic-note pattern.
+- **Locale override.** *(Later)* A setting to force a moment locale different from Obsidian's. Add before public release.
+
+---
 
 ## From Obsidian-Daily-Notes-Editor
 
-- **Folder selection mode.** "Show all notes inside folder X in the multi-note editor." Tied to the `setSelectionMode("folder", path)` API and the `SelectTargetModal`. The full upstream `FileManager` had branches for this — we kept only the `daily` branch.
-- **Tag selection mode.** Same shape but driven by a tag instead of a folder path.
-- **Preset list.** Save folder/tag selections as named presets and surface them in the view's action menu and settings tab. Requires reintroducing the `preset` field in settings, the `AddPresetModal`, and the preset list UI in the settings tab.
-- **Custom date range.** A modal date-picker for start/end dates that filters the editor view. We dropped the `CustomRangeModal` to keep the view header simple.
-- **Quarterly and "last quarter" time ranges in the editor view.** Upstream supported `quarter` and `last-quarter` in `TimeRange`. We can add these once quarterly periodic notes are restored.
-- **Arrow-up / arrow-down navigation between embedded editors** (`createUpDownNavigationExtension` / `UpAndDownNavigate.ts`). A CodeMirror extension that lets the cursor leave the top/bottom of one embedded note and land in the adjacent one.
-- **Recent Files plugin integration.** Upstream patches `recent-files-obsidian` so notes opened inside the editor view don't pollute the recent-files list. We skipped the recent-files patch but kept the equivalent patch for Obsidian's built-in recent-opened-file tracking.
-- **"Open daily notes for this folder" file-menu item.** Right-clicking a folder offered a one-click way to enter folder mode. Gone with the folder mode.
-- **Funding metadata / icon set.** The upstream `addIconList()` adds a single decorative `daily-note` icon that we don't use. Easy to add if we want a custom ribbon icon for the editor view.
-
-## Cross-cutting things worth deciding before adding the above
-
-- Whether to ship a richer Svelte 4 settings UI or stay on the plain `PluginSettingTab` long-term.
-- Whether the editor view should accept any periodic note (weekly/monthly), not just daily, once weekly/monthly are well-tested.
-- Whether to introduce a proper in-memory cache for periodic-note discovery, with vault-event listeners — and what API to expose for future modules.
+- **Folder selection mode.** *(Keep – next milestone)* "Show all notes inside folder X in the multi-note editor." Extends `SelectionMode` and `FileManager`.
+- **Tag selection mode.** *(Keep – next milestone)* Same shape as folder mode but driven by a tag. Depends on folder mode.
+- **Preset list.** *(Keep – next milestone)* Save folder/tag selections as named presets surfaced in the view's action menu and settings tab. Requires `AddPresetModal` and preset UI in the settings tab.
+- **Custom date range.** *(Keep – next milestone)* Modal date-picker for start/end dates filtering the editor view. Requires `CustomRangeModal` and extending `TimeRange`.
+- **Quarterly and "last quarter" time ranges in the editor view.** *(Keep – next milestone)* Add `quarter` and `last-quarter` to `TimeRange` once quarterly periodic notes are restored.
+- **Arrow-up / arrow-down navigation between embedded editors.** *(Keep – next milestone)* CodeMirror extension (`createUpDownNavigationExtension`) that lets the cursor leave the top/bottom of one embedded note and land in the adjacent one.
+- **Recent Files plugin integration.** *(Keep – next milestone)* Patch `recent-files-obsidian` so notes opened inside the editor view don't pollute the recent-files list.
+- **"Open daily notes for this folder" file-menu item.** *(Keep – next milestone)* Right-click a folder to enter folder mode. Blocked on folder mode shipping.
+- **Funding metadata / icon set.** *(Later)* Custom ribbon icon for the editor view. Easy to add anytime.

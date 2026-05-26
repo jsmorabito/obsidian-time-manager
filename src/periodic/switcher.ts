@@ -1,0 +1,143 @@
+/**
+ * Quick-switcher integrations.
+ *
+ * - Related-files switcher: shows all periodic notes related to the active file
+ *   (same granularity, sorted by proximity to the active date).
+ * - File-options switcher: shows actions for the active periodic note
+ *   (open, create next/prev, reveal in explorer).
+ */
+import { App, FuzzySuggestModal, SuggestModal, TFile } from "obsidian";
+import type TimeManagerPlugin from "../main";
+import { findInPeriodic, openPeriodicNote } from "./api";
+import { findPeriodicNotes } from "./discovery";
+import { displayConfigs } from "./types";
+import type { Granularity } from "./types";
+
+// ── Related-files switcher ────────────────────────────────────────────────────
+
+interface RelatedFile {
+	file: TFile;
+	label: string;
+}
+
+class RelatedFilesSwitcher extends FuzzySuggestModal<RelatedFile> {
+	constructor(
+		app: App,
+		private plugin: TimeManagerPlugin,
+		private granularity: Granularity
+	) {
+		super(app);
+		this.setPlaceholder(`Jump to ${displayConfigs[granularity].periodicity} note…`);
+	}
+
+	getItems(): RelatedFile[] {
+		const config = this.plugin.getConfig(this.granularity);
+		const matches = findPeriodicNotes(this.app, config, this.granularity);
+		return matches.map((m) => ({
+			file: m.file,
+			label: m.file.basename,
+		}));
+	}
+
+	getItemText(item: RelatedFile): string {
+		return item.label;
+	}
+
+	onChooseItem(item: RelatedFile): void {
+		this.app.workspace.getLeaf(false).openFile(item.file);
+	}
+}
+
+// ── File-options switcher ─────────────────────────────────────────────────────
+
+interface FileOption {
+	label: string;
+	action: () => void;
+}
+
+class FileOptionsSwitcher extends SuggestModal<FileOption> {
+	constructor(app: App, private options: FileOption[]) {
+		super(app);
+		this.setPlaceholder("Choose an action…");
+	}
+
+	getSuggestions(query: string): FileOption[] {
+		const q = query.toLowerCase();
+		return this.options.filter((o) => o.label.toLowerCase().includes(q));
+	}
+
+	renderSuggestion(option: FileOption, el: HTMLElement): void {
+		el.setText(option.label);
+	}
+
+	onChooseSuggestion(option: FileOption): void {
+		option.action();
+	}
+}
+
+// ── Registration ──────────────────────────────────────────────────────────────
+
+export function registerQuickSwitchers(plugin: TimeManagerPlugin): void {
+	plugin.addCommand({
+		id: "open-related-files-switcher",
+		name: "Open related periodic notes switcher",
+		checkCallback: (checking) => {
+			const activeFile = plugin.app.workspace.getActiveFile();
+			if (!activeFile) return false;
+			const meta = findInPeriodic(plugin, activeFile.path);
+			if (!meta) return false;
+			if (!checking) {
+				new RelatedFilesSwitcher(plugin.app, plugin, meta.granularity).open();
+			}
+			return true;
+		},
+	});
+
+	plugin.addCommand({
+		id: "open-file-options-switcher",
+		name: "Open periodic note actions",
+		checkCallback: (checking) => {
+			const activeFile = plugin.app.workspace.getActiveFile();
+			if (!activeFile) return false;
+			const meta = findInPeriodic(plugin, activeFile.path);
+			if (!meta) return false;
+
+			if (!checking) {
+				const { granularity, date } = meta;
+				const cfg = displayConfigs[granularity];
+				const options: FileOption[] = [
+					{
+						label: `Open next ${cfg.periodicity} note`,
+						action: () =>
+							openPeriodicNote(
+								plugin,
+								granularity,
+								date.clone().add(1, granularity)
+							).catch(console.error),
+					},
+					{
+						label: `Open previous ${cfg.periodicity} note`,
+						action: () =>
+							openPeriodicNote(
+								plugin,
+								granularity,
+								date.clone().subtract(1, granularity)
+							).catch(console.error),
+					},
+					{
+						label: "Reveal in file explorer",
+						action: () => {
+							// eslint-disable-next-line @typescript-eslint/no-explicit-any
+							const explorer = (plugin.app as any).internalPlugins?.plugins?.[
+								"file-explorer"
+							]?.instance;
+							if (explorer?.revealInFolder) explorer.revealInFolder(activeFile);
+						},
+					},
+				];
+				new FileOptionsSwitcher(plugin.app, options).open();
+			}
+			return true;
+		},
+	});
+}

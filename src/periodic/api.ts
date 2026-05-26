@@ -5,6 +5,7 @@ import { getNoteCreationPath } from "../utils/paths";
 import { DEFAULT_FORMAT } from "./constants";
 import { findPeriodicNotes, getPeriodicNoteForDate } from "./discovery";
 import type { Granularity, PeriodicConfig } from "./types";
+import { granularities } from "./types";
 
 export interface PeriodicResolver {
 	app: App;
@@ -70,7 +71,7 @@ export function findInPeriodic(
 	resolver: PeriodicResolver,
 	filePath: string
 ): { granularity: Granularity; date: Moment } | null {
-	for (const granularity of ["day", "week", "month"] as Granularity[]) {
+	for (const granularity of granularities) {
 		const config = resolver.getConfig(granularity);
 		const matches = findPeriodicNotes(resolver.app, config, granularity);
 		const match = matches.find((m) => m.file.path === filePath);

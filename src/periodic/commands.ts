@@ -6,7 +6,7 @@ import {
 	getPeriodicNote,
 	openPeriodicNote,
 } from "./api";
-import { displayConfigs, type Granularity } from "./types";
+import { displayConfigs, granularities, type Granularity } from "./types";
 
 /**
  * Register all periodic-note commands for the granularities currently enabled
@@ -15,8 +15,6 @@ import { displayConfigs, type Granularity } from "./types";
  * to appear immediately. We mention this in the settings tab description.
  */
 export function registerPeriodicCommands(plugin: TimeManagerPlugin): void {
-	const granularities: Granularity[] = ["day", "week", "month"];
-
 	for (const granularity of granularities) {
 		const config = displayConfigs[granularity];
 		if (!plugin.settings[granularity].enabled) continue;

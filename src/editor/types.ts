@@ -1,15 +1,16 @@
-// MVP scope: only `daily` selection mode (no folder/tag) and a subset of time
-// ranges. The wider ranges are tracked in docs/deferred-features.md.
 export type TimeRange =
 	| "all"
 	| "week"
 	| "month"
+	| "quarter"
 	| "year"
 	| "last-week"
 	| "last-month"
-	| "last-year";
+	| "last-quarter"
+	| "last-year"
+	| "custom";
 
-export type SelectionMode = "daily";
+export type SelectionMode = "daily" | "folder" | "tag";
 
 export type TimeField =
 	| "ctime"
@@ -18,3 +19,8 @@ export type TimeField =
 	| "mtimeReverse"
 	| "name"
 	| "nameReverse";
+
+export interface CustomRange {
+	start: string; // ISO date YYYY-MM-DD
+	end: string;   // ISO date YYYY-MM-DD
+}

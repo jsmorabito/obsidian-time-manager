@@ -1,5 +1,5 @@
 import "./obsidian-augmentations";
-import { Plugin, TFile, WorkspaceLeaf, moment } from "obsidian";
+import { Menu, Plugin, TAbstractFile, TFile, WorkspaceLeaf, moment } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	TimeManagerSettings,
@@ -11,9 +11,13 @@ import {
 	ensureTodaysDailyNote,
 	registerPeriodicCommands,
 } from "./periodic/commands";
-import { openPeriodicNote } from "./periodic/api";
+import { findInPeriodic, openPeriodicNote } from "./periodic/api";
 import { TIME_MANAGER_EDITOR_VIEW, DailyNoteView } from "./editor/view";
 import { installWorkspacePatches } from "./editor/workspace-patches";
+import { TIME_MANAGER_TIMELINE_VIEW, TimelineView } from "./periodic/timeline-view";
+import { registerQuickSwitchers } from "./periodic/switcher";
+import { maybeMigrateFromDailyNotesCore } from "./periodic/migrate";
+import { displayConfigs } from "./periodic/types";
 
 export default class TimeManagerPlugin extends Plugin {
 	settings!: TimeManagerSettings;
@@ -40,7 +44,14 @@ export default class TimeManagerPlugin extends Plugin {
 			(leaf: WorkspaceLeaf) => new DailyNoteView(leaf, this)
 		);
 
+		// Timeline sidebar view.
+		this.registerView(
+			TIME_MANAGER_TIMELINE_VIEW,
+			(leaf: WorkspaceLeaf) => new TimelineView(leaf, this)
+		);
+
 		registerPeriodicCommands(this);
+		registerQuickSwitchers(this);
 
 		this.addCommand({
 			id: "open-multi-note-editor",
@@ -48,28 +59,108 @@ export default class TimeManagerPlugin extends Plugin {
 			callback: () => this.openEditorView(),
 		});
 
+		this.addCommand({
+			id: "open-timeline-sidebar",
+			name: "Open timeline sidebar",
+			callback: () => this.openTimelineView(),
+		});
+
 		this.applyBodyClasses();
 		this.configureRibbons();
+
+		// File menu integrations.
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu, file) => {
+				if (!(file instanceof TFile)) return;
+				const meta = findInPeriodic(this, file.path);
+				if (!meta) return;
+
+				const { granularity, date } = meta;
+				const cfg = displayConfigs[granularity];
+				const periodLabel = cfg.periodicity;
+
+				menu.addSeparator();
+
+				menu.addItem((item) => {
+					item.setTitle(`Open previous ${periodLabel} note`);
+					item.setIcon("arrow-left");
+					item.onClick(() => {
+						openPeriodicNote(this, granularity, date.clone().subtract(1, granularity)).catch(
+							console.error
+						);
+					});
+				});
+
+				menu.addItem((item) => {
+					item.setTitle(`Open next ${periodLabel} note`);
+					item.setIcon("arrow-right");
+					item.onClick(() => {
+						openPeriodicNote(this, granularity, date.clone().add(1, granularity)).catch(
+							console.error
+						);
+					});
+				});
+
+				menu.addItem((item) => {
+					item.setTitle("Show in timeline sidebar");
+					item.setIcon("calendar-range");
+					item.onClick(() => this.openTimelineView());
+				});
+			})
+		);
+
+		// "Open daily notes for this folder" — folder context menu.
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu, file) => {
+				if (file instanceof TFile) return; // only folders
+				const folderPath = (file as TAbstractFile).path;
+
+				menu.addItem((item) => {
+					item.setTitle("Open notes in multi-note editor (this folder)");
+					item.setIcon("calendar-range");
+					item.onClick(async () => {
+						const { workspace } = this.app;
+						const existing = workspace.getLeavesOfType(TIME_MANAGER_EDITOR_VIEW);
+						const leaf =
+							existing.length > 0 ? existing[0] : workspace.getLeaf(true);
+						if (existing.length === 0) {
+							await leaf.setViewState({ type: TIME_MANAGER_EDITOR_VIEW });
+						}
+						workspace.revealLeaf(leaf);
+						const view = leaf.view as DailyNoteView;
+						view.setSelectionMode("folder", folderPath);
+					});
+				});
+			})
+		);
 
 		this.registerInterval(
 			window.setInterval(this.checkDayChange.bind(this), 1000 * 60 * 15)
 		);
 
-		if (this.settings.createAndOpenEditorOnStartup) {
-			this.app.workspace.onLayoutReady(async () => {
+		this.app.workspace.onLayoutReady(async () => {
+			// Offer to migrate from Daily Notes core plugin (once).
+			await maybeMigrateFromDailyNotesCore(this);
+
+			// Auto-open editor view.
+			if (this.settings.createAndOpenEditorOnStartup) {
 				await ensureTodaysDailyNote(this);
-				if (
-					this.app.workspace.getLeavesOfType(TIME_MANAGER_EDITOR_VIEW).length > 0
-				) {
-					return;
+				if (this.app.workspace.getLeavesOfType(TIME_MANAGER_EDITOR_VIEW).length === 0) {
+					await this.openEditorView();
 				}
-				await this.openEditorView();
-			});
-		}
+			}
+
+			// Auto-open specific periodic note.
+			const g = this.settings.openNoteOnStartup;
+			if (g && this.settings[g].enabled) {
+				await openPeriodicNote(this, g, moment()).catch(console.error);
+			}
+		});
 	}
 
 	onunload(): void {
 		this.app.workspace.detachLeavesOfType(TIME_MANAGER_EDITOR_VIEW);
+		this.app.workspace.detachLeavesOfType(TIME_MANAGER_TIMELINE_VIEW);
 		document.body.classList.remove("tm-hide-frontmatter", "tm-hide-backlinks");
 	}
 
@@ -105,6 +196,14 @@ export default class TimeManagerPlugin extends Plugin {
 		workspace.revealLeaf(leaf);
 	}
 
+	async openTimelineView(): Promise<void> {
+		const { workspace } = this.app;
+		// Prefer the right sidebar for the timeline.
+		const leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf(true);
+		await leaf.setViewState({ type: TIME_MANAGER_TIMELINE_VIEW });
+		workspace.revealLeaf(leaf);
+	}
+
 	private async checkDayChange(): Promise<void> {
 		const currentDay = moment().format("YYYY-MM-DD");
 		if (currentDay === this.lastCheckedDay) return;
@@ -114,6 +213,9 @@ export default class TimeManagerPlugin extends Plugin {
 
 		for (const leaf of this.app.workspace.getLeavesOfType(TIME_MANAGER_EDITOR_VIEW)) {
 			(leaf.view as DailyNoteView).refreshForNewDay?.();
+		}
+		for (const leaf of this.app.workspace.getLeavesOfType(TIME_MANAGER_TIMELINE_VIEW)) {
+			(leaf.view as TimelineView).refresh?.();
 		}
 	}
 
@@ -126,6 +228,11 @@ export default class TimeManagerPlugin extends Plugin {
 		await this.saveData(this.settings);
 		this.applyBodyClasses();
 		this.configureRibbons();
+		// Push the updated enabled-granularities list into any open editor views
+		// so their toolbars reflect the change without needing a reload.
+		for (const leaf of this.app.workspace.getLeavesOfType(TIME_MANAGER_EDITOR_VIEW)) {
+			(leaf.view as DailyNoteView).refreshSettings();
+		}
 	}
 }
 
@@ -137,9 +244,12 @@ function mergeSettings(
 	return {
 		...defaults,
 		...saved,
-		day: { ...defaults.day, ...(saved.day ?? {}) },
-		week: { ...defaults.week, ...(saved.week ?? {}) },
-		month: { ...defaults.month, ...(saved.month ?? {}) },
+		day:     { ...defaults.day,     ...(saved.day     ?? {}) },
+		week:    { ...defaults.week,    ...(saved.week    ?? {}) },
+		month:   { ...defaults.month,   ...(saved.month   ?? {}) },
+		quarter: { ...defaults.quarter, ...(saved.quarter ?? {}) },
+		year:    { ...defaults.year,    ...(saved.year    ?? {}) },
+		presets: saved.presets ?? defaults.presets,
 	};
 }
 

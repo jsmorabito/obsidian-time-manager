@@ -3,8 +3,10 @@
 // These workspace patches let the embedded leaves inside the editor view
 // behave correctly with respect to activeLeaf, layout iteration, and pinning.
 // Without them the multi-note view either steals focus oddly or fails to
-// render. The MVP intentionally skips the upstream recent-files-obsidian
-// integration — see docs/deferred-features.md.
+// render.
+//
+// Also patches the community "recent-files-obsidian" plugin (if installed) so
+// that files opened inside our editor view don't pollute the recent-files list.
 //
 // `this: any` annotations are intentional: monkey-around installs these as
 // prototype methods, so `this` is dynamically the host object (Workspace or
@@ -109,6 +111,7 @@ export function installWorkspacePatches(plugin: Plugin): void {
 			openFile(old: any) {
 				return function (this: any, file: any, openState?: any) {
 					if (isDailyNoteLeaf(this)) {
+						// Suppress Obsidian's built-in recent-opened-file tracking.
 						setTimeout(
 							around(Workspace.prototype as any, {
 								recordMostRecentOpenedFile(old: any) {
@@ -119,6 +122,21 @@ export function installWorkspacePatches(plugin: Plugin): void {
 							}),
 							1
 						);
+
+						// Suppress the community "recent-files-obsidian" plugin if present.
+						const recentFilesPlugin = (plugin.app as any).plugins?.plugins?.[
+							"recent-files-obsidian"
+						];
+						if (recentFilesPlugin?.handleOpen) {
+							const origHandleOpen = recentFilesPlugin.handleOpen.bind(recentFilesPlugin);
+							recentFilesPlugin.handleOpen = (f: any) => {
+								if (f === file) return;
+								origHandleOpen(f);
+							};
+							setTimeout(() => {
+								recentFilesPlugin.handleOpen = origHandleOpen;
+							}, 50);
+						}
 					}
 					return old.call(this, file, openState);
 				};
