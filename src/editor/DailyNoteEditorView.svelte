@@ -38,6 +38,7 @@
 	// Mirror plugin settings so toolbar toggles update reactively
 	let hideFrontmatter = plugin.settings.hideFrontmatter;
 	let hideBacklinks   = plugin.settings.hideBacklinks;
+	let showEmptyNotes  = true;
 
 	// Sort labels — typed via satisfies after inference
 	const sortLabels = {
@@ -105,6 +106,25 @@
 		await plugin.saveSettings();
 	}
 
+	/** Returns true when the file has no meaningful body (empty or frontmatter-only). */
+	function isNoteEmpty(f: TFile): boolean {
+		if (f.stat.size === 0) return true;
+		const cache = plugin.app.metadataCache.getFileCache(f);
+		if (!cache) return false; // cache not ready — assume not empty
+		const sections = cache.sections ?? [];
+		if (sections.length === 0) return true;
+		return sections.every((s) => s.type === "yaml");
+	}
+
+	function applyEmptyFilter(files: TFile[]): TFile[] {
+		if (showEmptyNotes) return files;
+		return files.filter((f) => !isNoteEmpty(f));
+	}
+
+	function toggleShowEmptyNotes() {
+		showEmptyNotes = !showEmptyNotes;
+	}
+
 	let hasMore = true;
 	let firstLoaded = true;
 	let loaderRef: HTMLDivElement;
@@ -144,7 +164,7 @@
 		});
 		renderedFiles = [];
 		visibleNotes.clear();
-		filteredFiles = fileManager.getFilteredFiles();
+		filteredFiles = applyEmptyFilter(fileManager.getFilteredFiles());
 		totalFileCount = filteredFiles.length;
 		hasMore = filteredFiles.length > 0;
 		firstLoaded = true;
@@ -154,20 +174,61 @@
 
 	onMount(() => {
 		fileManager = new FileManager(fileManagerOptions);
-		filteredFiles = fileManager.getFilteredFiles();
+		filteredFiles = applyEmptyFilter(fileManager.getFilteredFiles());
 		totalFileCount = filteredFiles.length;
 		hasMore = filteredFiles.length > 0;
 		startFillViewport();
 		updateTitleElement();
 	});
 
-	// Re-filter when search query changes
+	// Re-filter when search query changes (title + content)
 	let _prevSearchQuery = "";
+	let _searchGeneration = 0;
+
 	$: if (fileManager && searchQuery !== _prevSearchQuery) {
 		_prevSearchQuery = searchQuery;
-		const q = searchQuery.trim().toLowerCase();
+		applySearchQuery(searchQuery);
+	}
+
+	// Re-filter when the "show empty notes" toggle changes.
+	let _prevShowEmptyNotes = true;
+	$: if (fileManager && showEmptyNotes !== _prevShowEmptyNotes) {
+		_prevShowEmptyNotes = showEmptyNotes;
+		filteredFiles = applyEmptyFilter(fileManager.getFilteredFiles());
+		renderedFiles = [];
+		visibleNotes.clear();
+		hasMore = filteredFiles.length > 0;
+		firstLoaded = true;
+		startFillViewport();
+	}
+
+	async function applySearchQuery(q: string) {
+		const gen = ++_searchGeneration;
+		const query = q.trim().toLowerCase();
 		const all = fileManager.getFilteredFiles();
-		filteredFiles = q ? all.filter((f) => f.basename.toLowerCase().includes(q)) : all;
+
+		let matches: TFile[];
+		if (!query) {
+			matches = all;
+		} else {
+			const results = await Promise.all(
+				all.map(async (f) => {
+					if (f.basename.toLowerCase().includes(query)) return f;
+					try {
+						const content = await plugin.app.vault.cachedRead(f);
+						if (content.toLowerCase().includes(query)) return f;
+					} catch {
+						// ignore unreadable files
+					}
+					return null;
+				})
+			);
+			if (gen !== _searchGeneration) return; // stale — a newer query is in flight
+			matches = results.filter((f): f is TFile => f !== null);
+		}
+
+		if (gen !== _searchGeneration) return;
+		filteredFiles = applyEmptyFilter(matches);
 		renderedFiles = [];
 		visibleNotes.clear();
 		hasMore = filteredFiles.length > 0;
@@ -290,7 +351,7 @@
 		const hasDailyNote = fileManager.hasCurrentDayNote();
 
 		if (hadDailyNote !== hasDailyNote || selectedRange !== "all") {
-			filteredFiles = fileManager.getFilteredFiles();
+			filteredFiles = applyEmptyFilter(fileManager.getFilteredFiles());
 			totalFileCount = filteredFiles.length;
 			renderedFiles = [];
 			visibleNotes.clear();
@@ -441,7 +502,7 @@
 				<button
 					class="tm-toolbar-action"
 					class:tm-toolbar-action--active={activeDropdown === "filter"}
-					class:tm-toolbar-action--applied={selectedRange !== "all"}
+					class:tm-toolbar-action--applied={selectedRange !== "all" || !showEmptyNotes}
 					on:click|stopPropagation={() => toggleDropdown("filter")}
 					aria-haspopup="listbox"
 					aria-expanded={activeDropdown === "filter"}
@@ -488,6 +549,19 @@
 							{/if}
 							Custom range…
 						</button>
+						<div class="tm-dropdown-separator"></div>
+						<label class="tm-prop-toggle">
+							<span class="tm-prop-label">Show empty notes</span>
+							<button
+								class="tm-toggle-btn"
+								class:tm-toggle-btn--on={showEmptyNotes}
+								role="switch"
+								aria-checked={showEmptyNotes}
+								on:click|stopPropagation={toggleShowEmptyNotes}
+							>
+								<span class="tm-toggle-knob"></span>
+							</button>
+						</label>
 					</div>
 				{/if}
 			</div>

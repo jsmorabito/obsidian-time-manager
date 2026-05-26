@@ -47,23 +47,27 @@
 .tm-note-view {
 	display: flex;
 	flex-direction: column;
-	gap: var(--size-4-4);
+	gap: var(--size-4-8);
+	padding: var(--size-4-4);
 	overflow-x: hidden;
 }
 
-.tm-note-view .tm-note-wrapper::before {
-	content: "";
-	display: block;
-	height: 1px;
-	width: var(--file-line-width);
-	margin-bottom: 30px;
+/* Card-style note wrapper — uses only Obsidian design tokens */
+.tm-note-view .tm-note-wrapper {
+	background: var(--background-primary);
+	border-radius: var(--radius-m);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: 0 1px 4px var(--background-modifier-border);
+	max-width: var(--file-line-width);
 	margin-left: auto;
 	margin-right: auto;
-	background-color: var(--background-modifier-border);
+	width: 100%;
+	padding: var(--size-4-5) var(--size-4-6) var(--size-4-3);
+	transition: box-shadow 0.15s ease;
 }
 
-.tm-note-view .tm-note-wrapper:first-of-type::before {
-	height: 0;
+.tm-note-view .tm-note-wrapper:hover {
+	box-shadow: 0 2px 8px var(--background-modifier-border);
 }
 
 .tm-note-view .embedded-backlinks {
