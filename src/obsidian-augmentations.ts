@@ -3,6 +3,7 @@
 // trimmed to only what this plugin actually touches.
 import "obsidian";
 import type {
+	Loc,
 	Plugin,
 	PluginManifest,
 	TFile,

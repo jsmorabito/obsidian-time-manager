@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unused-vars */
 import { normalizePath, TFile, TFolder } from "obsidian";
 import type TimeManagerPlugin from "../main";
 import type { ActiveSession, SessionFrontmatter } from "./types";

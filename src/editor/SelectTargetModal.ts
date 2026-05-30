@@ -1,7 +1,7 @@
 /**
  * Modals for picking a folder or tag to use as the editor's selection target.
  */
-import { App, FuzzySuggestModal, SuggestModal, TFolder } from "obsidian";
+import { App, FuzzySuggestModal, TFolder } from "obsidian";
 
 // ── Folder picker ─────────────────────────────────────────────────────────────
 
@@ -53,7 +53,7 @@ export class SelectTagModal extends FuzzySuggestModal<TagEntry> {
 	}
 
 	getItems(): TagEntry[] {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
 		const tagCache: Record<string, number> = (this.app as any).metadataCache?.getTags?.() ?? {};
 		return Object.entries(tagCache)
 			.map(([tag, count]) => ({ tag: tag.replace(/^#/, ""), count }))

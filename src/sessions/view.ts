@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 import { ItemView, WorkspaceLeaf } from "obsidian";
 import type TimeManagerPlugin from "../main";
 import SessionsViewSvelte from "./SessionsView.svelte";

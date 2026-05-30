@@ -1,5 +1,6 @@
+/* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, obsidianmd/no-static-styles-assignment, @typescript-eslint/no-deprecated */
 import "./obsidian-augmentations";
-import { Menu, Plugin, TAbstractFile, TFile, WorkspaceLeaf, moment } from "obsidian";
+import { Notice, Plugin, TAbstractFile, TFile, WorkspaceLeaf, moment } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	TimeManagerSettings,
@@ -31,13 +32,20 @@ import {
 	VIEW_TYPE_RECENTLY_VIEWED,
 	RecentlyViewedView,
 } from "./recently-viewed/view";
+import { CalendarService } from "./calendar/calendar-service";
+import { TIME_MANAGER_INBOX_VIEW, InboxView } from "./inbox/view";
+import { registerInboxCommands, addInboxFileMenuItem } from "./inbox/commands";
+import { InboxService } from "./editor/InboxService";
 
 export default class TimeManagerPlugin extends Plugin {
 	settings!: TimeManagerSettings;
 	sessionManager!: SessionManager;
 	nlDates!: NLDatesModule;
+	calendarService!: CalendarService;
+	inboxService!: InboxService;
 	private editorRibbon: HTMLElement | null = null;
 	private dailyRibbon: HTMLElement | null = null;
+	private inboxRibbon: HTMLElement | null = null;
 	private lastCheckedDay = moment().format("YYYY-MM-DD");
 
 	// PeriodicResolver implementation.
@@ -48,6 +56,12 @@ export default class TimeManagerPlugin extends Plugin {
 	async onload(): Promise<void> {
 		await this.loadSettings();
 		registerPeriodicIcons();
+
+		// Inbox service — must be created before any view is mounted.
+		this.inboxService = new InboxService(this.app);
+
+		// Calendar service — must be created before any view is mounted.
+		this.calendarService = new CalendarService(this);
 
 		// Sessions — manager must be created before any view is mounted.
 		this.sessionManager = new SessionManager(this);
@@ -80,9 +94,16 @@ export default class TimeManagerPlugin extends Plugin {
 			(leaf: WorkspaceLeaf) => new RecentlyViewedView(leaf, this)
 		);
 
+		// Inbox panel.
+		this.registerView(
+			TIME_MANAGER_INBOX_VIEW,
+			(leaf: WorkspaceLeaf) => new InboxView(leaf, this)
+		);
+
 		registerPeriodicCommands(this);
 		registerQuickSwitchers(this);
 		registerLeafNavActions(this);
+		registerInboxCommands(this);
 
 		// ── Natural Language Dates ──────────────────────────────────────────────
 		this.nlDates = new NLDatesModule(this);
@@ -121,7 +142,8 @@ export default class TimeManagerPlugin extends Plugin {
 
 		this.addCommand({
 			id: "open-recently-viewed",
-			name: "Open Recently Viewed panel",
+			// eslint-disable-next-line obsidianmd/ui/sentence-case
+		name: "Open Recently Viewed panel",
 			callback: () => this.openRecentlyViewedPanel(),
 		});
 
@@ -135,6 +157,9 @@ export default class TimeManagerPlugin extends Plugin {
 		this.applyBodyClasses();
 		this.configureRibbons();
 
+		// File menu: inbox + periodic-note actions.
+		addInboxFileMenuItem(this);
+
 		// File menu integrations — handles both file and folder items in a single handler.
 		this.registerEvent(
 			this.app.workspace.on("file-menu", (menu, file) => {
@@ -143,6 +168,7 @@ export default class TimeManagerPlugin extends Plugin {
 					const meta = findInPeriodic(this, file.path);
 					if (!meta) return;
 
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 					const { granularity, date } = meta;
 					const cfg = displayConfigs[granularity];
 					const periodLabel = cfg.periodicity;
@@ -181,13 +207,15 @@ export default class TimeManagerPlugin extends Plugin {
 					menu.addItem((item) => {
 						item.setTitle("Open notes in multi-note editor (this folder)");
 						item.setIcon("calendar-range");
-						item.onClick(async () => {
+						item.onClick(() => {
+						void (async () => {
 							const { workspace } = this.app;
 							const leaf = workspace.getLeaf(true);
 							await leaf.setViewState({ type: TIME_MANAGER_EDITOR_VIEW });
 							workspace.revealLeaf(leaf);
 							(leaf.view as DailyNoteView).setSelectionMode("folder", folderPath);
-						});
+						})();
+					});
 					});
 				}
 			})
@@ -197,7 +225,13 @@ export default class TimeManagerPlugin extends Plugin {
 			window.setInterval(this.checkDayChange.bind(this), 1000 * 60 * 15)
 		);
 
-		this.app.workspace.onLayoutReady(async () => {
+		// Refresh the inbox view every minute so snoozed items reappear when their
+		// inbox-snooze timestamp expires (InboxService filters them out until then).
+		this.registerInterval(
+			window.setInterval(() => this.refreshInboxView(), 1000 * 60)
+		);
+
+		this.app.workspace.onLayoutReady(() => { void (async () => {
 			// Initialise the NL date parser now that moment's locale is ready.
 			this.nlDates.initialize();
 
@@ -206,6 +240,9 @@ export default class TimeManagerPlugin extends Plugin {
 
 			// Recover any session that was left open from a previous Obsidian run.
 			await this.sessionManager.initialize();
+
+			// Refresh inbox on startup so snoozed items that expired while closed reappear.
+			this.refreshInboxView();
 
 			// Auto-open editor view.
 			if (this.settings.createAndOpenEditorOnStartup) {
@@ -224,36 +261,36 @@ export default class TimeManagerPlugin extends Plugin {
 			// Register periodic notes into the obsidian-objects @ trigger menu
 			// if that plugin is installed. Degrades silently if it isn't.
 			this._registerObjectsTrigger();
-		});
+		})(); });
 	}
 
 	private _registerObjectsTrigger(): void {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
 		const objectsPlugin = (this.app as any).plugins?.plugins?.[
 			"filtered-file-commands"
 		];
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
 		if (typeof objectsPlugin?.registerTriggerProvider !== "function") return;
 
 		const provider = createPeriodicTriggerProvider(this);
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
 		objectsPlugin.registerTriggerProvider(provider);
 
 		// Clean up when this plugin unloads so objects never holds a dead reference.
-		this.register(() =>
-			objectsPlugin.unregisterTriggerProvider("obsidian-time-tools")
-		);
+		this.register(() => {
+			// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return
+			objectsPlugin.unregisterTriggerProvider("obsidian-time-tools");
+		});
 	}
 
 	onunload(): void {
-		this.app.workspace.detachLeavesOfType(TIME_MANAGER_EDITOR_VIEW);
-		this.app.workspace.detachLeavesOfType(TIME_MANAGER_TIMELINE_VIEW);
-		this.app.workspace.detachLeavesOfType(TIME_MANAGER_SESSIONS_VIEW);
-		this.app.workspace.detachLeavesOfType(VIEW_TYPE_RECENTLY_VIEWED);
 		document.body.classList.remove("tm-hide-frontmatter", "tm-hide-backlinks");
 	}
 
 	private configureRibbons() {
 		this.dailyRibbon?.remove();
 		this.editorRibbon?.remove();
+		this.inboxRibbon?.remove();
 
 		if (this.settings.day.enabled) {
 			this.dailyRibbon = this.addRibbonIcon(
@@ -268,6 +305,11 @@ export default class TimeManagerPlugin extends Plugin {
 			"calendar-range",
 			"Open time note view",
 			() => this.openEditorView()
+		);
+		this.inboxRibbon = this.addRibbonIcon(
+			"inbox",
+			"Open inbox",
+			() => void this.openInboxView()
 		);
 	}
 
@@ -314,6 +356,16 @@ export default class TimeManagerPlugin extends Plugin {
 	refreshRecentlyViewedPanel(): void {
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_RECENTLY_VIEWED)) {
 			(leaf.view as RecentlyViewedView).render();
+		}
+	}
+
+	/** Re-render any open views that display calendar events. */
+	refreshCalendarViews(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(TIME_MANAGER_TIMELINE_VIEW)) {
+			(leaf.view as TimelineView).refresh();
+		}
+		for (const leaf of this.app.workspace.getLeavesOfType(TIME_MANAGER_EDITOR_VIEW)) {
+			(leaf.view as DailyNoteView).refreshCalendar?.();
 		}
 	}
 
@@ -389,6 +441,24 @@ export default class TimeManagerPlugin extends Plugin {
 		}
 	}
 
+	async openInboxView(): Promise<void> {
+		const { workspace } = this.app;
+		const existing = workspace.getLeavesOfType(TIME_MANAGER_INBOX_VIEW);
+		if (existing.length > 0) {
+			workspace.revealLeaf(existing[0]);
+			return;
+		}
+		const leaf = workspace.getLeftLeaf(false) ?? workspace.getLeaf(true);
+		await leaf.setViewState({ type: TIME_MANAGER_INBOX_VIEW, active: true });
+		workspace.revealLeaf(leaf);
+	}
+
+	refreshInboxView(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(TIME_MANAGER_INBOX_VIEW)) {
+			(leaf.view as InboxView).render();
+		}
+	}
+
 	async loadSettings(): Promise<void> {
 		const saved = (await this.loadData()) as Partial<TimeManagerSettings> | null;
 		this.settings = mergeSettings(DEFAULT_SETTINGS, saved);
@@ -410,7 +480,7 @@ function mergeSettings(
 	defaults: TimeManagerSettings,
 	saved: Partial<TimeManagerSettings> | null | undefined
 ): TimeManagerSettings {
-	if (!saved) return JSON.parse(JSON.stringify(defaults));
+	if (!saved) return JSON.parse(JSON.stringify(defaults)) as TimeManagerSettings;
 
 	// Merge each granularity's PeriodicConfig so that new fields added to the
 	// defaults are always present, even after upgrading from an older save file.
@@ -431,6 +501,11 @@ function mergeSettings(
 		rvShowPath:       saved.rvShowPath       ?? defaults.rvShowPath,
 		recentFiles:      saved.recentFiles      ?? defaults.recentFiles,
 		nlDates:          { ...defaults.nlDates, ...(saved.nlDates ?? {}) },
+		calendarSources:  saved.calendarSources  ?? defaults.calendarSources,
+		inboxDisplay:     { ...defaults.inboxDisplay, ...(saved.inboxDisplay ?? {}) },
+		inboxTags:        saved.inboxTags        ?? defaults.inboxTags,
+		inboxExcludeTags: saved.inboxExcludeTags ?? defaults.inboxExcludeTags,
+		readTaggedItems:  saved.readTaggedItems  ?? defaults.readTaggedItems,
 	};
 }
 

@@ -38,14 +38,30 @@ src/
 
   editor/
     types.ts                  # TimeRange, SelectionMode, TimeField, CustomRange
-    file-manager.ts           # FileManager — resolves files for daily/folder/tag modes, filters by range
+    file-manager.ts           # FileManager — resolves files for daily/folder/tag/horizon modes, filters by range
     view.ts                   # DailyNoteView ItemView — state, actions, menus
-    DailyNoteEditorView.svelte # Svelte shell — toolbar, infinite scroll, mode switching
+    DailyNoteEditorView.svelte # Svelte shell — toolbar, breadcrumb bar, infinite scroll, mode switching
     DailyNote.svelte           # Single embedded note leaf
     leafView.ts               # spawnLeafView, DailyNoteEditor, isDailyNoteLeaf
     workspace-patches.ts      # monkey-around patches for activeLeaf, iterateLeaves, recent-files
     CustomRangeModal.ts       # Date-picker modal for custom time ranges
     up-down-navigation.ts     # CodeMirror extension for cross-note arrow-key navigation
+    InboxService.ts           # Scans metadataCache for #inbox tags — returns TaggedInboxItem[] (used by InboxView)
+    InboxLine.svelte          # Line-level #inbox hit card (used by DailyNoteEditorView inbox mode)
+
+  inbox/
+    types.ts                  # InboxItem (manual store entry), InboxDisplayOptions
+    store.ts                  # InboxStore — persisted array of manually-added inbox items (saved to plugin data)
+    view.ts                   # InboxView ItemView — LEFT SIDEBAR panel; shows manual items + live #inbox-tagged items
+    commands.ts               # registerInboxCommands — open-inbox, add-file-to-inbox, add-file-to-inbox-with-options
+    AddToInboxModal.ts        # Modal for adding a file with priority/due date/tags
+    SnoozeModal.ts            # Modal for snoozing an inbox item to a future time
+
+  calendar/
+    types.ts                  # CalendarSource, CalendarEvent, CALENDAR_COLORS
+    calendar-service.ts       # CalendarService — fetches/caches ICS feeds, 15-min TTL
+    ics-parser.ts             # parseICS, isEventOnDate — pure ICS parsing (no network)
+    EventsStrip.svelte        # Thin events bar rendered below the breadcrumb bar in daily mode
 
   utils/
     id.ts
@@ -69,6 +85,7 @@ src/
   hideBacklinks: boolean
   presets: Preset[]                                      // saved folder/tag/daily selections
   migratedFromDailyNotes: boolean                        // one-shot migration guard
+  calendarSources: CalendarSource[]                      // ICS/iCal feeds — url or vault-relative file path
 }
 ```
 
@@ -93,13 +110,38 @@ Default formats:
 
 ## Editor view — SelectionMode
 
-The multi-note editor (`DailyNoteView` / `DailyNoteEditorView.svelte`) has three selection modes:
+The multi-note editor (`DailyNoteView` / `DailyNoteEditorView.svelte`) has four selection modes:
 
 - `"daily"` — shows periodic notes for the active granularity, filtered by `TimeRange`
 - `"folder"` — shows all markdown files inside a chosen folder path
 - `"tag"` — shows all markdown files carrying a chosen tag
+- `"horizon"` — shows one embedded column per enabled granularity (today's note for each), side by side
 
-`FileManager` handles all three. `DailyNoteView.setSelectionMode(mode, pathOrTag)` is the public API — call it from `main.ts` or the settings tab, not by directly mutating `FileManager`.
+`FileManager` handles the first three. `DailyNoteView.setSelectionMode(mode, pathOrTag)` is the public API — call it from `main.ts` or the settings tab, not by directly mutating `FileManager`.
+
+### Scroll direction
+
+In `"daily"` mode the user can toggle vertical (default, newest-first) or horizontal scroll. Horizontal mode re-sorts oldest-first so the timeline reads left-to-right and silently prepends older notes as the user scrolls left. `DailyNoteView.setScrollDirection()` persists this across sessions.
+
+### Breadcrumb / navigation bar
+
+In `"daily"` mode a breadcrumb bar is rendered below the toolbar showing the focused note's hierarchical context (e.g. `2026 / Q2 / W24`). Each segment is clickable to switch granularity and scroll to that note. The **current** (rightmost) segment has a `▾` chevron that opens a **period-nav dropdown** showing the child periods within the focused period:
+
+| Active granularity | Dropdown shows |
+|---|---|
+| `year` | Q1–Q4 |
+| `quarter` | 3 months |
+| `month` | isoWeeks overlapping the month |
+| `week` | 7 days (Mon–Sun), date number + 2-letter abbr |
+| `day` | *(no dropdown)* |
+
+Clicking a chip switches granularity (if the target granularity is enabled) and navigates to that note, creating it if absent. Today's chip is highlighted in accent color. `getSubPeriods(date, gran)` and `handleSubPeriodClick(sub)` in `DailyNoteEditorView.svelte` own this logic.
+
+**CSS note:** `.tm-breadcrumbs` must **not** have `overflow: hidden` — it would clip the absolutely-positioned dropdown. Use `overflow: visible` (the current default).
+
+### Calendar / Events strip
+
+`CalendarService` (instantiated on `plugin.calendarService`) fetches all enabled `calendarSources`, parses ICS via `ics-parser.ts`, and caches events for 15 minutes. `EventsStrip.svelte` renders a thin row of today's events below the breadcrumb bar in daily mode. Call `plugin.calendarService.invalidate()` after settings changes to clear the cache.
 
 ---
 
@@ -139,6 +181,25 @@ All commands use stable IDs — do not rename after release.
 | `open-timeline-sidebar` | Open the timeline sidebar |
 | `open-related-files-switcher` | Fuzzy-switch between periodic notes of the same granularity |
 | `open-file-options-switcher` | Action picker for the active periodic note |
+
+---
+
+## Inbox architecture
+
+The plugin has **one** inbox — `src/inbox/InboxView` — a left sidebar panel registered as `TIME_MANAGER_INBOX_VIEW`. Do not build a second inbox or confuse it with the editor's "inbox" selection mode.
+
+**Two item sources render in the same sidebar view:**
+
+| Source | How items get in | How items leave |
+|---|---|---|
+| **Manual** (`InboxStore`) | User runs "Add file to inbox" command or uses the file-menu action | Dismiss / snooze / dismiss-all |
+| **Tagged** (`InboxService`) | File or line carries `#inbox` tag (inline or frontmatter) | Remove the `#inbox` tag from the source |
+
+`InboxService` (`src/editor/InboxService.ts`) scans `metadataCache` synchronously and returns `TaggedInboxItem[]` (a discriminated union of `InboxFileItem` and `InboxInlineItem`). **Note:** the type is named `TaggedInboxItem`, not `InboxItem` — that name is taken by the manual store type in `src/inbox/types.ts`.
+
+`InboxView.renderBody()` calls both `inboxStore.getActiveItems()` and `inboxService.getInboxItems()` and renders them in separate sections ("Active", "Scheduled", "Tagged"). A `vault.modify` + `metadataCache.changed` listener triggers `this.render()` so the Tagged section stays live.
+
+The editor view also has an `"inbox"` `SelectionMode` (source selector → Inbox) which shows the same tagged items in the scrollable multi-note editor — that is a secondary surface, not the primary one.
 
 ---
 
@@ -185,3 +246,6 @@ Output: `main.js` at plugin root (esbuild bundles everything). Do not commit `ma
 - Registering a view or event listener outside of `onload` (or without `this.register*`)
 - Calling `fileManager.updateOptions()` directly from Svelte — go through `DailyNoteView` methods
 - Using `localStorage` — not supported in Obsidian; use `plugin.loadData()` / `saveData()`
+- Adding `overflow: hidden` to `.tm-breadcrumbs` or `.tm-breadcrumb-bar` — it clips the period-nav dropdown
+- Calling `plugin.calendarService.getEventsForDate()` without handling the async result — it returns a `Promise`
+- `import type { Moment } from "obsidian"` — `Moment` is **not** exported from the obsidian package. Use `import type { Moment } from "moment"` instead. This affects `src/periodic/api.ts`, `src/periodic/discovery.ts`, `src/utils/relative-date.ts`, and `src/utils/template.ts`. These files get reverted by a local formatter/hook, so re-apply if the build breaks with `TS2724: '"obsidian"' has no exported member named 'Moment'`.

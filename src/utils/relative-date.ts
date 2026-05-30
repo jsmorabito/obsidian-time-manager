@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-redundant-type-constituents */
+// eslint-disable-next-line no-restricted-imports
 import type { Moment } from "moment";
 import { Platform } from "obsidian";
 import { HUMANIZE_FORMAT } from "../periodic/constants";

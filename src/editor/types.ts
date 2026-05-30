@@ -10,7 +10,7 @@ export type TimeRange =
 	| "last-year"
 	| "custom";
 
-export type SelectionMode = "daily" | "folder" | "tag" | "horizon";
+export type SelectionMode = "daily" | "folder" | "tag" | "horizon" | "inbox";
 
 export type TimeField =
 	| "ctime"

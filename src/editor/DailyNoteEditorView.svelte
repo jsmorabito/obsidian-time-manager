@@ -4,13 +4,17 @@
 	import type { WorkspaceLeaf } from "obsidian";
 	import { TFile, moment } from "obsidian";
 	import DailyNote from "./DailyNote.svelte";
+	import InboxLine from "./InboxLine.svelte";
+	import EventsStrip from "../calendar/EventsStrip.svelte";
+	import { InboxService } from "./InboxService";
+	import type { TaggedInboxItem } from "./InboxService";
 	import { inview } from "svelte-inview";
 	import type { CustomRange, SelectionMode, TimeField, TimeRange } from "./types";
 	import type { Granularity } from "../periodic/types";
 	import { granularities, displayConfigs } from "../periodic/types";
 	import { onMount, tick as svelteTick } from "svelte";
 	import { FileManager, type FileManagerOptions } from "./file-manager";
-	import { getPeriodicNote, createPeriodicNote } from "../periodic/api";
+	import { getPeriodicNote, createPeriodicNote, getFormat } from "../periodic/api";
 
 	export let plugin: TimeManagerPlugin;
 	export let leaf: WorkspaceLeaf;
@@ -33,6 +37,10 @@
 	let filteredFiles: TFile[] = [];
 	let totalFileCount = 0;
 	let visibleNotes: Set<string> = new Set();
+	/** File determined to be at the top of the viewport via scroll events.
+	 *  Takes precedence over the IO-based derivation (which uses rootMargin: 80%
+	 *  and incorrectly marks off-screen notes as visible). */
+	let scrollFocusedFile: TFile | null = null;
 
 	// Toolbar state
 	let activeDropdown = "";   // "granularity" | "sort" | "filter" | "properties" | ""
@@ -276,6 +284,12 @@
 		hasMore = filteredFiles.length > 0;
 		startFillViewport();
 		updateTitleElement();
+		// Seed inbox items immediately if the view is opened directly into inbox mode
+		// (the reactive block above may have run before fileManager was assigned).
+		if (selectionMode === "inbox") {
+			if (!inboxService) inboxService = new InboxService(plugin.app);
+			inboxItems = inboxService.getInboxItems();
+		}
 	});
 
 	// Re-filter when search query changes (title + content).
@@ -449,9 +463,22 @@
 		if (leaf?.view?.setSelectedRange) leaf.view.setSelectedRange(range);
 	}
 
+	let eventsStripComponent: EventsStrip | undefined;
+
+	/** Called by DailyNoteView when calendar sources change. */
+	export function refreshCalendar() {
+		eventsStripComponent?.refresh();
+	}
+
 	export function tick() {
 		check();
 		renderedFiles = renderedFiles;
+	}
+
+	/** Scroll the view to today's note (or create it if absent). */
+	export async function scrollToToday(): Promise<void> {
+		if (selectionMode !== "daily" || scrollDirection !== "vertical") return;
+		await navigateToday();
 	}
 
 	export function check() {
@@ -512,9 +539,14 @@
 		const idx = allFiles.findIndex((f) => f.path === targetFile.path);
 		if (idx === -1) return; // not in the current filter
 
-		// Force-render every note from the top down to (and including) the target.
-		renderedFiles = allFiles.slice(0, idx + 1);
-		filteredFiles = allFiles.slice(idx + 1);
+		// Render notes from the top down to the target, plus LOOK_AHEAD extras below.
+		// Without the look-ahead, the scroll container may not have enough content
+		// after the target to allow scrolling it all the way to the top
+		// (browser clamps scrollTop to scrollHeight - clientHeight).
+		const LOOK_AHEAD = 10;
+		const renderEnd = Math.min(allFiles.length, idx + 1 + LOOK_AHEAD);
+		renderedFiles = allFiles.slice(0, renderEnd);
+		filteredFiles = allFiles.slice(renderEnd);
 		hasMore = filteredFiles.length > 0;
 		firstLoaded = false;
 
@@ -529,10 +561,25 @@
 				if (scrollDirection === "horizontal") {
 					el.scrollIntoView({ behavior, inline: "start", block: "nearest" });
 				} else {
-					el.scrollIntoView({ behavior, block: "start" });
+					const container = getScrollContainer();
+					const targetTop = el.getBoundingClientRect().top
+						- container.getBoundingClientRect().top
+						+ container.scrollTop;
+					container.scrollTop = targetTop;
 				}
 				break;
 			}
+		}
+
+		// Update the breadcrumb immediately to reflect the target note.
+		// The IO-based visibleNotes uses rootMargin: 80% and will still mark
+		// notes above the viewport as "in view", so we need the DOM-based focus.
+		scrollFocusedFile = targetFile;
+		// For smooth scrolls the on:scroll handler will keep updating during
+		// animation; for instant scrolls fire one extra RAF to capture final position.
+		if (behavior === "instant") {
+			await new Promise<void>((r) => requestAnimationFrame(() => r()));
+			updateFocusFromScroll();
 		}
 	}
 
@@ -542,11 +589,73 @@
 		visibleNotes = visibleNotes;
 	}
 
+	/**
+	 * Returns the element that is actually doing the vertical scrolling by walking
+	 * up the DOM from scrollEl. Obsidian's real scroll container is often
+	 * `.workspace-leaf-content`, which sits above `.view-content` and `.tm-note-view`.
+	 */
+	function getScrollContainer(): HTMLElement {
+		let el: HTMLElement | null = scrollEl;
+		while (el) {
+			const style = window.getComputedStyle(el);
+			if (
+				(style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+				el.scrollHeight > el.clientHeight
+			) {
+				return el;
+			}
+			el = el.parentElement;
+		}
+		// Absolute fallback — should rarely be reached
+		// @ts-ignore
+		return (leaf?.view?.contentEl as HTMLElement) ?? document.documentElement;
+	}
+
+	/** Derive the focused file from DOM position: first note whose top edge is at
+	 *  or below the scroll container's visible top. Called on scroll events and
+	 *  after programmatic scrolls so the breadcrumb reflects the topmost note. */
+	function updateFocusFromScroll() {
+		if (!scrollEl) return;
+		// Use scrollEl's top as the reference: it's the top of the note-list area,
+		// regardless of which outer container is doing the actual scrolling.
+		const listTop = scrollEl.getBoundingClientRect().top;
+		for (const el of scrollEl.querySelectorAll<HTMLElement>(".tm-note-wrapper[data-path]")) {
+			const rect = el.getBoundingClientRect();
+			// Pick the first note that is at least partially visible at the top
+			// (bottom edge below the note-list top), even if its own top is scrolled above.
+			if (rect.bottom > listTop) {
+				const path = el.getAttribute("data-path")!;
+				const file = renderedFiles.find(f => f.path === path) ?? null;
+				if (file) scrollFocusedFile = file;
+				return;
+			}
+		}
+	}
+
 	// Determine which granularity tabs to show (only enabled ones + daily always shown).
 	// This is a prop so DailyNoteView can push a fresh list whenever settings are saved.
 	export let enabledGranularities: Granularity[] = granularities.filter(
 		(g) => g === "day" || plugin.settings[g].enabled
 	);
+
+	// ── Inbox mode ──────────────────────────────────────────────────────────────
+	$: isInboxMode = selectionMode === "inbox";
+
+	let inboxItems: TaggedInboxItem[] = [];
+	let inboxService: InboxService | null = null;
+
+	$: if (isInboxMode && fileManager) {
+		if (!inboxService) inboxService = new InboxService(plugin.app);
+		inboxItems = inboxService.getInboxItems();
+	}
+
+	/** Called by DailyNoteView when metadataCache changes in inbox mode. */
+	export function refreshInbox() {
+		if (!isInboxMode) return;
+		if (!inboxService) inboxService = new InboxService(plugin.app);
+		inboxItems = inboxService.getInboxItems();
+	}
+	// ────────────────────────────────────────────────────────────────────────────
 
 	// ── Horizon mode ────────────────────────────────────────────────────────────
 	$: isHorizonMode = selectionMode === "horizon";
@@ -603,6 +712,208 @@
 		horizonTick++;
 	}
 	// ────────────────────────────────────────────────────────────────────────────
+
+	// ── Breadcrumb / navigation bar ─────────────────────────────────────────
+
+	/** The topmost note currently visible in the scroll area. */
+	// Use the scroll-derived focus when available (more accurate than the IO-based
+	// visibleNotes which uses rootMargin: 80% and marks off-screen notes as in-view).
+	// Fall back to IO-based when scrollFocusedFile has become stale (e.g. after a
+	// granularity switch clears renderedFiles).
+	$: focusedFile = (scrollFocusedFile && renderedFiles.some(f => f.path === scrollFocusedFile!.path))
+		? scrollFocusedFile
+		: renderedFiles.find(f => visibleNotes.has(f.path)) ?? renderedFiles[0] ?? null;
+
+	/** Parsed date of the focused file (null when not in daily mode or unparseable). */
+	$: focusedDate = (focusedFile && selectionMode === "daily")
+		? moment(focusedFile.basename, getFormat(plugin.getConfig(granularity), granularity))
+		: null;
+
+	/** True when the focused note is the current period (today / this week / etc.). */
+	$: isOnToday = (() => {
+		if (!focusedDate?.isValid()) return true;
+		const now = moment();
+		if (granularity === "week") {
+			return focusedDate.isoWeek() === now.isoWeek() && focusedDate.isoWeekYear() === now.isoWeekYear();
+		}
+		return focusedDate.isSame(now, granularity);
+	})();
+
+	type BreadcrumbSeg = { label: string; gran: Granularity; date: ReturnType<typeof moment> };
+
+	/** Hierarchical label segments for the current focused note. */
+	$: breadcrumbSegments = (() => {
+		if (!focusedDate?.isValid()) return [] as BreadcrumbSeg[];
+		const y: BreadcrumbSeg = { label: focusedDate.format("YYYY"),        gran: "year",    date: focusedDate.clone().startOf("year") };
+		const q: BreadcrumbSeg = { label: `Q${focusedDate.quarter()}`,       gran: "quarter", date: focusedDate.clone().startOf("quarter") };
+		const m: BreadcrumbSeg = { label: focusedDate.format("MMM"),         gran: "month",   date: focusedDate.clone().startOf("month") };
+		const w: BreadcrumbSeg = { label: `W${focusedDate.isoWeek()}`,       gran: "week",    date: focusedDate.clone().startOf("isoWeek") };
+		const d: BreadcrumbSeg = { label: focusedDate.format("MMM D"),       gran: "day",     date: focusedDate.clone() };
+		switch (granularity) {
+			case "day":     return [y, q, m, w, d];
+			case "week":    return [y, q, w];
+			case "month":   return [y, q, m];
+			case "quarter": return [y, q];
+			case "year":    return [y];
+		}
+	})();
+
+	async function handleBreadcrumbClick(seg: BreadcrumbSeg) {
+		// Switch granularity first if needed, then wait for reactive updates to settle.
+		if (seg.gran !== granularity) {
+			handleGranularityChange(seg.gran);
+			await svelteTick();
+			await svelteTick();
+		}
+		// Navigate to (or create) the target note.
+		let targetFile = getPeriodicNote(plugin, seg.gran, seg.date);
+		if (!targetFile) {
+			targetFile = await createPeriodicNote(plugin, seg.gran, seg.date);
+			renderedFiles = [targetFile, ...renderedFiles];
+			visibleNotes.add(targetFile.path);
+			visibleNotes = visibleNotes;
+		}
+		await scrollToFile(targetFile, "instant");
+	}
+
+	/** All filtered files sorted oldest→newest (for prev/next navigation). */
+	function getDateSortedFiles(): TFile[] {
+		const fmt = getFormat(plugin.getConfig(granularity), granularity);
+		return [...fileManager.getFilteredFiles()].sort(
+			(a, b) => moment(a.basename, fmt).valueOf() - moment(b.basename, fmt).valueOf()
+		);
+	}
+
+	async function navigatePrev() {
+		if (!focusedDate?.isValid() || !fileManager) return;
+		const sorted = getDateSortedFiles();
+		const idx = sorted.findIndex(f => f.path === focusedFile?.path);
+		if (idx > 0) {
+			await scrollToFile(sorted[idx - 1], "instant");
+		} else {
+			// At the oldest edge — create a note for the previous period.
+			const prevDate = focusedDate.clone().subtract(1, granularity === "week" ? "week" : granularity);
+			const newFile = await createPeriodicNote(plugin, granularity, prevDate);
+			renderedFiles = [newFile, ...renderedFiles];
+			visibleNotes.add(newFile.path);
+			visibleNotes = visibleNotes;
+			await scrollToFile(newFile, "instant");
+		}
+	}
+
+	async function navigateNext() {
+		if (!focusedDate?.isValid() || !fileManager) return;
+		const sorted = getDateSortedFiles();
+		const idx = sorted.findIndex(f => f.path === focusedFile?.path);
+		if (idx !== -1 && idx < sorted.length - 1) {
+			await scrollToFile(sorted[idx + 1], "instant");
+		} else {
+			// At the newest edge — create a note for the next period.
+			const nextDate = focusedDate.clone().add(1, granularity === "week" ? "week" : granularity);
+			const newFile = await createPeriodicNote(plugin, granularity, nextDate);
+			renderedFiles = [...renderedFiles, newFile];
+			visibleNotes.add(newFile.path);
+			visibleNotes = visibleNotes;
+			await scrollToFile(newFile, "instant");
+		}
+	}
+
+	async function navigateToday() {
+		const now = moment();
+		let todayFile = getPeriodicNote(plugin, granularity, now);
+		if (!todayFile) {
+			todayFile = await createPeriodicNote(plugin, granularity, now);
+			renderedFiles = [todayFile, ...renderedFiles];
+			visibleNotes.add(todayFile.path);
+			visibleNotes = visibleNotes;
+		}
+		await scrollToFile(todayFile, "instant");
+	}
+
+	// ── Period-nav dropdown ─────────────────────────────────────────────────
+
+	/** Whether the sub-period dropdown on the current breadcrumb is open. */
+	let showPeriodNav = false;
+
+	/** Click-outside action for the period-nav dropdown. */
+	function periodNavClickOutside(node: HTMLElement) {
+		const handle = (e: MouseEvent) => {
+			if (!node.contains(e.target as Node)) {
+				showPeriodNav = false;
+			}
+		};
+		document.addEventListener("click", handle, true);
+		return { destroy() { document.removeEventListener("click", handle, true); } };
+	}
+
+	type SubPeriod = { label: string; subLabel: string; gran: Granularity; date: ReturnType<typeof moment> };
+
+	/**
+	 * Returns the child periods that fall inside the given period.
+	 *   year    → Q1–Q4
+	 *   quarter → 3 months
+	 *   month   → isoWeeks overlapping the month
+	 *   week    → 7 days (Mon–Sun)
+	 *   day     → [] (no children)
+	 */
+	function getSubPeriods(date: ReturnType<typeof moment>, gran: Granularity): SubPeriod[] {
+		switch (gran) {
+			case "day":
+				return [];
+			case "week": {
+				const start = date.clone().startOf("isoWeek");
+				return Array.from({ length: 7 }, (_, i) => {
+					const d = start.clone().add(i, "day");
+					return { label: String(d.date()), subLabel: d.format("dd").slice(0, 2), gran: "day" as Granularity, date: d };
+				});
+			}
+			case "month": {
+				const monthStart = date.clone().startOf("month");
+				const monthEnd   = date.clone().endOf("month");
+				const weeks: SubPeriod[] = [];
+				let w = monthStart.clone().startOf("isoWeek");
+				while (w.isSameOrBefore(monthEnd, "day")) {
+					weeks.push({ label: `W${w.isoWeek()}`, subLabel: w.format("MMM D"), gran: "week" as Granularity, date: w.clone() });
+					w.add(1, "week");
+				}
+				return weeks;
+			}
+			case "quarter": {
+				const qStart = date.clone().startOf("quarter");
+				return [0, 1, 2].map(i => {
+					const m = qStart.clone().add(i, "month");
+					return { label: m.format("MMM"), subLabel: m.format("YYYY"), gran: "month" as Granularity, date: m };
+				});
+			}
+			case "year": {
+				return [1, 2, 3, 4].map(q => {
+					const qDate = date.clone().startOf("year").add((q - 1) * 3, "month");
+					return { label: `Q${q}`, subLabel: qDate.format("MMM"), gran: "quarter" as Granularity, date: qDate };
+				});
+			}
+		}
+	}
+
+	/** Navigate to a sub-period, switching granularity if the target gran is enabled. */
+	async function handleSubPeriodClick(sub: SubPeriod) {
+		showPeriodNav = false;
+		const targetGran = enabledGranularities.includes(sub.gran) ? sub.gran : granularity;
+		if (targetGran !== granularity) {
+			handleGranularityChange(targetGran);
+			await svelteTick();
+			await svelteTick();
+		}
+		let targetFile = getPeriodicNote(plugin, targetGran, sub.date);
+		if (!targetFile) {
+			targetFile = await createPeriodicNote(plugin, targetGran, sub.date);
+			renderedFiles = [targetFile, ...renderedFiles];
+			visibleNotes.add(targetFile.path);
+			visibleNotes = visibleNotes;
+		}
+		await scrollToFile(targetFile, "instant");
+	}
+
+	// ────────────────────────────────────────────────────────────────────────
 
 	// Show the "create note" prompt only in daily mode and when appropriate.
 	$: showCreatePrompt =
@@ -689,13 +1000,18 @@
 
 			<div class="tm-toolbar-divider"></div>
 		{:else}
-			<!-- Mode indicator for folder / tag — replaces granularity chip -->
+			<!-- Mode indicator for folder / tag / inbox — replaces granularity chip -->
 			<div class="tm-toolbar-mode-indicator">
 				{#if selectionMode === "folder"}
 					<svg class="tm-mode-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.764c.528 0 1.034.21 1.408.586L8.914 3.5H13.5A1.5 1.5 0 0 1 15 5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12V3.5z"/>
 					</svg>
 					<span class="tm-toolbar-mode-label">{folderPath || "folder"}</span>
+				{:else if selectionMode === "inbox"}
+					<svg class="tm-mode-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M2 10h3l1.5 2h3L11 10h3V3H2v7z"/>
+					</svg>
+					<span class="tm-toolbar-mode-label">Inbox</span>
 				{:else}
 					<svg class="tm-mode-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M9.5 2H14v4.5L6.5 14 2 9.5 9.5 2z"/>
@@ -929,6 +1245,8 @@
 		<span class="tm-toolbar-count" aria-live="polite">
 			{#if isHorizonMode}
 				{enabledGranularities.length} {enabledGranularities.length === 1 ? "period" : "periods"}
+			{:else if isInboxMode}
+				{inboxItems.length} {inboxItems.length === 1 ? "item" : "items"}
 			{:else}
 				{totalFileCount} {totalFileCount === 1 ? "note" : "notes"}
 			{/if}
@@ -951,7 +1269,129 @@
 			</button>
 		{/if}
 	</div>
-	{#if isHorizonMode}
+	{#if selectionMode === "daily" && breadcrumbSegments.length > 0}
+		<div class="tm-breadcrumb-bar">
+			<button
+				class="tm-nav-btn"
+				on:click={navigatePrev}
+				aria-label="Previous period"
+				title="Previous"
+			>
+				<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M10 3L5 8l5 5"/>
+				</svg>
+			</button>
+			<div class="tm-breadcrumbs">
+				{#each breadcrumbSegments as seg, i}
+					{#if i > 0}<span class="tm-breadcrumb-sep">/</span>{/if}
+					{#if seg.gran === granularity}
+						{@const subPeriods = getSubPeriods(seg.date, granularity)}
+						{#if subPeriods.length > 0}
+							<div class="tm-period-nav-wrap" use:periodNavClickOutside>
+								<button
+									class="tm-breadcrumb-seg tm-breadcrumb-seg--current tm-breadcrumb-seg--nav"
+									class:tm-breadcrumb-seg--nav-open={showPeriodNav}
+									on:click|stopPropagation={() => (showPeriodNav = !showPeriodNav)}
+									title="Navigate within {seg.label}"
+									aria-haspopup="true"
+									aria-expanded={showPeriodNav}
+								>
+									{seg.label}
+									<svg class="tm-period-nav-chevron" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<path d="M4 6l4 4 4-4"/>
+									</svg>
+								</button>
+								{#if showPeriodNav}
+									<div
+										class="tm-period-nav-dropdown"
+										class:tm-period-nav-dropdown--days={granularity === "week"}
+									>
+										{#each subPeriods as sub}
+											{@const isToday = sub.date.isSame(moment(), sub.gran === "week" ? "isoWeek" : sub.gran)}
+											{@const isEnabled = enabledGranularities.includes(sub.gran)}
+											<button
+												class="tm-period-nav-item"
+												class:tm-period-nav-item--today={isToday}
+												class:tm-period-nav-item--disabled={!isEnabled}
+												disabled={!isEnabled}
+												on:click={() => handleSubPeriodClick(sub)}
+												title={isEnabled ? `Open ${sub.label} ${sub.gran} note` : `${sub.gran} notes not enabled`}
+											>
+												{#if granularity === "week"}
+													<span class="tm-period-nav-day-num">{sub.label}</span>
+													<span class="tm-period-nav-day-abbr">{sub.subLabel}</span>
+												{:else}
+													<span class="tm-period-nav-chip-label">{sub.label}</span>
+													{#if granularity === "month"}
+														<span class="tm-period-nav-chip-sub">{sub.subLabel}</span>
+													{/if}
+												{/if}
+											</button>
+										{/each}
+									</div>
+								{/if}
+							</div>
+						{:else}
+							<button
+								class="tm-breadcrumb-seg tm-breadcrumb-seg--current"
+								title="{seg.label}"
+							>{seg.label}</button>
+						{/if}
+					{:else}
+						<button
+							class="tm-breadcrumb-seg"
+							on:click={() => handleBreadcrumbClick(seg)}
+							title="View {seg.label} in {seg.gran} view"
+						>{seg.label}</button>
+					{/if}
+				{/each}
+			</div>
+			<button
+				class="tm-nav-btn"
+				on:click={navigateNext}
+				aria-label="Next period"
+				title="Next"
+			>
+				<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M6 3l5 5-5 5"/>
+				</svg>
+			</button>
+			{#if !isOnToday}
+				<button class="tm-today-btn" on:click={navigateToday}>{
+				granularity === "day" ? "Today" :
+				granularity === "week" ? "This Week" :
+				granularity === "month" ? "This Month" :
+				granularity === "quarter" ? "This Quarter" :
+				"This Year"
+			}</button>
+			{/if}
+		</div>
+	{/if}
+
+	{#if selectionMode === "daily"}
+		<EventsStrip bind:this={eventsStripComponent} {plugin} date={focusedDate ?? moment()} />
+	{/if}
+
+	{#if isInboxMode}
+		<!-- ── Inbox view ── -->
+		<div class="tm-inbox-view">
+			{#if inboxItems.length === 0}
+				<div class="tm-stock">
+					<div class="tm-stock-text">No #inbox items found</div>
+				</div>
+			{:else}
+				{#each inboxItems as item (item.type === "file" ? `file:${item.file.path}` : `inline:${item.file.path}:${item.line}:${item.offset}`)}
+					{#if item.type === "file"}
+						<div class="tm-note-wrapper" data-path={item.file.path}>
+							<DailyNote file={item.file} {plugin} {leaf} shouldRender={true} {granularity} selectionMode="tag" />
+						</div>
+					{:else}
+						<InboxLine {plugin} {item} onClear={refreshInbox} />
+					{/if}
+				{/each}
+			{/if}
+		</div>
+	{:else if isHorizonMode}
 		<!-- ── Horizon view: one column per enabled granularity ── -->
 		<div class="tm-horizon-view">
 			{#each enabledGranularities as g}
@@ -985,7 +1425,7 @@
 		</div>
 	{:else}
 		<!-- ── Regular scrolling note list ── -->
-		<div class="tm-note-view" class:tm-note-view--horizontal={scrollDirection === "horizontal"} bind:this={scrollEl}>
+		<div class="tm-note-view" class:tm-note-view--horizontal={scrollDirection === "horizontal"} bind:this={scrollEl} on:scroll={updateFocusFromScroll}>
 			{#if renderedFiles.length === 0}
 				<div class="tm-stock">
 					<div class="tm-stock-text">No files found</div>
@@ -1475,5 +1915,211 @@
 	.tm-horizon-col-create {
 		font-size: var(--font-ui-small);
 		text-align: center;
+	}
+
+	/* ── Inbox view ── */
+
+	.tm-inbox-view {
+		flex: 1;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+	}
+
+	/* ── Breadcrumb / navigation bar ── */
+
+	.tm-breadcrumb-bar {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		padding: 2px 8px;
+		border-bottom: 1px solid var(--background-modifier-border);
+		background-color: var(--background-primary);
+		/* Allow period-nav dropdown to overflow below the bar */
+		overflow: visible;
+	}
+
+	.tm-breadcrumbs {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		flex: 1;
+		justify-content: center;
+		/* overflow: hidden would clip the period-nav dropdown — omit it */
+	}
+
+	.tm-breadcrumb-seg {
+		all: unset;
+		cursor: pointer;
+		font-size: var(--font-ui-smaller);
+		color: var(--text-muted);
+		font-weight: 500;
+		white-space: nowrap;
+		padding: 1px 4px;
+		border-radius: var(--radius-s);
+		transition: background-color 80ms ease, color 80ms ease;
+	}
+
+	.tm-breadcrumb-seg:hover {
+		background-color: var(--background-modifier-hover);
+		color: var(--text-normal);
+	}
+
+	.tm-breadcrumb-seg--current {
+		color: var(--text-normal);
+		cursor: default;
+	}
+
+	.tm-breadcrumb-sep {
+		font-size: var(--font-ui-smaller);
+		color: var(--text-faint);
+		flex-shrink: 0;
+	}
+
+	.tm-nav-btn {
+		all: unset;
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 3px 6px;
+		border-radius: var(--radius-s);
+		color: var(--text-muted);
+		flex-shrink: 0;
+		transition: background-color 80ms ease, color 80ms ease;
+	}
+
+	.tm-nav-btn:hover {
+		background-color: var(--background-modifier-hover);
+		color: var(--text-normal);
+	}
+
+	.tm-today-btn {
+		all: unset;
+		cursor: pointer;
+		padding: 2px 8px;
+		border-radius: var(--radius-s);
+		font-size: var(--font-ui-smaller);
+		color: var(--text-accent);
+		font-weight: 500;
+		flex-shrink: 0;
+		margin-left: 2px;
+		transition: background-color 80ms ease;
+	}
+
+	.tm-today-btn:hover {
+		background-color: var(--background-modifier-hover);
+	}
+
+	/* ── Period-nav dropdown ── */
+
+	.tm-period-nav-wrap {
+		position: relative;
+		display: inline-flex;
+	}
+
+	.tm-breadcrumb-seg--nav {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		cursor: pointer;
+	}
+
+	.tm-breadcrumb-seg--nav:hover,
+	.tm-breadcrumb-seg--nav-open {
+		background-color: var(--background-modifier-hover);
+		color: var(--text-normal);
+	}
+
+	.tm-period-nav-chevron {
+		flex-shrink: 0;
+		opacity: 0.6;
+		transition: transform 120ms ease;
+	}
+
+	.tm-breadcrumb-seg--nav-open .tm-period-nav-chevron {
+		transform: rotate(180deg);
+	}
+
+	.tm-period-nav-dropdown {
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: var(--layer-menu);
+		background-color: var(--background-primary);
+		border: 1px solid var(--background-modifier-border);
+		border-radius: var(--radius-m);
+		box-shadow: var(--shadow-l);
+		padding: 8px;
+		display: flex;
+		flex-direction: row;
+		gap: 4px;
+		white-space: nowrap;
+	}
+
+	/* Week view: 7-column day grid */
+	.tm-period-nav-dropdown--days {
+		gap: 2px;
+	}
+
+	.tm-period-nav-item {
+		all: unset;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		border-radius: var(--radius-s);
+		padding: 5px 8px;
+		gap: 2px;
+		transition: background-color 80ms ease;
+		min-width: 32px;
+	}
+
+	.tm-period-nav-item:hover:not(:disabled) {
+		background-color: var(--background-modifier-hover);
+	}
+
+	.tm-period-nav-item--today {
+		background-color: var(--interactive-accent);
+		color: var(--text-on-accent);
+	}
+
+	.tm-period-nav-item--today:hover {
+		background-color: var(--interactive-accent-hover);
+	}
+
+	.tm-period-nav-item--disabled {
+		opacity: 0.35;
+		cursor: not-allowed;
+	}
+
+	/* Day number (large) in week dropdown */
+	.tm-period-nav-day-num {
+		font-size: var(--font-ui-small);
+		font-weight: 500;
+		line-height: 1.2;
+	}
+
+	/* Day abbreviation (small) beneath the number */
+	.tm-period-nav-day-abbr {
+		font-size: 10px;
+		opacity: 0.7;
+		line-height: 1;
+	}
+
+	/* Label for month/quarter/year dropdowns */
+	.tm-period-nav-chip-label {
+		font-size: var(--font-ui-small);
+		font-weight: 500;
+		line-height: 1.2;
+	}
+
+	.tm-period-nav-chip-sub {
+		font-size: 10px;
+		opacity: 0.6;
+		line-height: 1;
 	}
 </style>

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
 /**
  * Migration from Obsidian's built-in Daily Notes core plugin.
  *
@@ -79,7 +80,7 @@ class MigrationModal extends Modal {
 
 	onOpen(): void {
 		const { contentEl } = this;
-		contentEl.createEl("h2", { text: "Import Daily Notes settings" });
+		contentEl.createEl("h2", { text: "Import Daily Notes settings" }); // eslint-disable-line obsidianmd/ui/sentence-case
 		contentEl.createEl("p", {
 			text:
 				"Obsidian Time Tools found your existing Daily Notes core plugin configuration. " +
@@ -104,6 +105,7 @@ class MigrationModal extends Modal {
 						if (this.core.template) this.plugin.settings.day.templatePath = this.core.template;
 						this.plugin.settings.migratedFromDailyNotes = true;
 						await this.plugin.saveSettings();
+						// eslint-disable-next-line obsidianmd/ui/sentence-case
 						new Notice("Obsidian Time Tools: Daily Notes settings imported.");
 						this.close();
 					})

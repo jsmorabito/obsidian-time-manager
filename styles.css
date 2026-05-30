@@ -429,3 +429,790 @@ body.tm-hide-backlinks .tm-note-view .embedded-backlinks {
 	background-color: var(--scrollbar-thumb-bg);
 	border-radius: 2px;
 }
+
+/* ── Calendar integration ─────────────────────────────────────────────────── */
+
+/* Timeline sidebar — events section */
+.tm-timeline-events {
+	margin-top: 4px;
+}
+
+.tm-events-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 2px 8px 8px;
+}
+
+.tm-events-loading,
+.tm-events-empty,
+.tm-events-error {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	padding: 2px 0;
+}
+
+.tm-events-error {
+	color: var(--text-error, var(--color-red));
+}
+
+.tm-event-row {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 2px 0;
+}
+
+.tm-event-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex-shrink: 0;
+	background-color: var(--interactive-accent);
+}
+
+.tm-event-body {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.tm-event-summary {
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.tm-event-time {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+/* ── Inbox panel (inbox-*) ────────────────────────────────────────────────────
+ * Left-sidebar panel for capturing and actioning files.
+ * All colors and sizes use Obsidian design tokens only — no hardcoded values.
+ */
+
+/* ── Layout ── */
+
+.inbox-container {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	overflow: hidden;
+}
+
+/* ── Header ── */
+
+.inbox-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--size-4-2) var(--size-4-3);
+	border-bottom: 1px solid var(--background-modifier-border);
+	flex-shrink: 0;
+	gap: var(--size-4-2);
+}
+
+.inbox-header-left {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	min-width: 0;
+}
+
+.inbox-header-icon {
+	display: flex;
+	align-items: center;
+	color: var(--text-muted);
+	flex-shrink: 0;
+}
+
+.inbox-header-icon svg {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
+.inbox-title {
+	font-size: var(--font-ui-smaller);
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.inbox-badge {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 18px;
+	height: 16px;
+	padding: 0 5px;
+	border-radius: var(--radius-l);
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: var(--font-ui-smaller);
+	font-weight: 600;
+	line-height: 1;
+	flex-shrink: 0;
+}
+
+.inbox-header-right {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	flex-shrink: 0;
+}
+
+.inbox-icon-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	padding: 0;
+	border: none;
+	border-radius: var(--radius-s);
+	background: transparent;
+	color: var(--text-faint);
+	cursor: pointer;
+	transition: background-color 0.1s ease, color 0.1s ease;
+	box-shadow: none;
+}
+
+.inbox-icon-btn:hover {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-muted);
+}
+
+.inbox-icon-btn.inbox-btn-active {
+	color: var(--interactive-accent);
+}
+
+.inbox-icon-btn svg {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
+/* ── Sections ── */
+
+.inbox-section {
+	padding: var(--size-4-2) 0;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.inbox-section:last-child {
+	border-bottom: none;
+}
+
+.inbox-section-header {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding: 0 var(--size-4-3) var(--size-4-1);
+}
+
+.inbox-section-title {
+	font-size: var(--font-ui-smaller);
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--text-muted);
+}
+
+.inbox-section-count {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+	font-variant-numeric: tabular-nums;
+}
+
+.inbox-section-empty {
+	padding: var(--size-4-2) var(--size-4-3);
+	font-size: var(--font-ui-small);
+	color: var(--text-faint);
+	font-style: italic;
+}
+
+/* ── Item rows ── */
+
+.inbox-item {
+	position: relative;
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2) var(--size-4-3);
+	margin: 1px var(--size-4-1);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	transition: background-color 0.1s ease;
+}
+
+.inbox-item:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.inbox-item:active {
+	background-color: var(--background-modifier-active-hover);
+}
+
+.inbox-item--scheduled {
+	opacity: 0.75;
+}
+
+.inbox-item--scheduled:hover {
+	opacity: 1;
+}
+
+.inbox-item-icon {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--icon-m);
+	height: var(--icon-m);
+	margin-top: 1px;
+	color: var(--nav-item-color);
+}
+
+.inbox-item-icon svg {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
+.inbox-item-content {
+	flex: 1;
+	min-width: 0;
+}
+
+.inbox-item-name {
+	font-size: var(--font-ui-small);
+	font-weight: 450;
+	color: var(--text-normal);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	line-height: 1.4;
+}
+
+.inbox-item-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	margin-top: 3px;
+}
+
+/* ── Meta chips ── */
+
+.inbox-meta-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	padding: 1px 6px;
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-smaller);
+	font-weight: 500;
+	line-height: 1.5;
+	white-space: nowrap;
+}
+
+.inbox-chip-icon {
+	display: inline-flex;
+	align-items: center;
+}
+
+.inbox-chip-icon svg {
+	width: 10px;
+	height: 10px;
+}
+
+/* Remind chip */
+.inbox-chip--remind {
+	background-color: var(--background-modifier-border);
+	color: var(--text-muted);
+}
+
+/* Due date chip */
+.inbox-chip--due {
+	background-color: var(--background-modifier-border);
+	color: var(--text-muted);
+}
+
+.inbox-chip--overdue {
+	background-color: color-mix(in srgb, var(--color-red) 12%, transparent);
+	color: var(--color-red);
+}
+
+/* Priority chips — use semantic Obsidian palette variables */
+.inbox-chip--priority {
+	background-color: var(--background-modifier-border);
+	color: var(--text-muted);
+}
+
+.inbox-chip--high {
+	background-color: color-mix(in srgb, var(--color-red) 12%, transparent);
+	color: var(--color-red);
+}
+
+.inbox-chip--medium {
+	background-color: color-mix(in srgb, var(--color-orange) 15%, transparent);
+	color: var(--color-orange);
+}
+
+.inbox-chip--low {
+	background-color: color-mix(in srgb, var(--color-blue) 12%, transparent);
+	color: var(--color-blue);
+}
+
+/* Tag chip */
+.inbox-chip--tag {
+	background-color: var(--tag-background);
+	color: var(--tag-color);
+	border-radius: var(--tag-radius);
+	padding: var(--tag-padding-y) var(--tag-padding-x);
+	font-size: var(--tag-size);
+}
+
+/* ── Unread dot ── */
+
+.inbox-unread-dot {
+	flex-shrink: 0;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	margin-top: 6px;
+	/* Invisible when read — keeps layout stable so items don't shift */
+	background-color: transparent;
+	transition: background-color 0.15s ease;
+}
+
+.inbox-unread-dot.is-unread {
+	background-color: var(--interactive-accent);
+}
+
+/* ── Per-item action button (ellipsis) ── */
+
+.inbox-item-right {
+	flex-shrink: 0;
+	display: flex;
+	align-items: flex-start;
+	justify-content: flex-end;
+	min-width: 28px;
+}
+
+.inbox-item-age {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+	white-space: nowrap;
+	line-height: 22px; /* match more-btn height so they swap cleanly */
+	transition: opacity 0.1s ease;
+}
+
+.inbox-item:hover .inbox-item-age {
+	opacity: 0;
+}
+
+.inbox-item-actions {
+	display: none;
+	flex-shrink: 0;
+	/* Align with the name text baseline */
+	margin-top: 0;
+}
+
+.inbox-item:hover .inbox-item-actions {
+	display: flex;
+}
+
+.inbox-item-more-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	border: none;
+	border-radius: var(--radius-s);
+	background: transparent;
+	color: var(--text-faint);
+	cursor: pointer;
+	transition: background-color 0.1s ease, color 0.1s ease;
+	box-shadow: none;
+}
+
+.inbox-item-more-btn:hover {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-muted);
+}
+
+.inbox-item-more-btn svg {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
+/* ── Empty state ── */
+
+.inbox-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: var(--size-4-8) var(--size-4-4);
+	text-align: center;
+	color: var(--text-muted);
+}
+
+.inbox-empty-icon {
+	margin-bottom: var(--size-4-3);
+	opacity: 0.35;
+}
+
+.inbox-empty-icon svg {
+	width: 32px;
+	height: 32px;
+}
+
+.inbox-empty-title {
+	margin: 0 0 var(--size-4-1);
+	font-size: var(--font-ui-small);
+	font-weight: 500;
+	color: var(--text-muted);
+}
+
+.inbox-empty-sub {
+	margin: 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+/* ── Popovers (filter + display panels) ── */
+
+.inbox-popover {
+	position: absolute;
+	min-width: 220px;
+	background-color: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-l);
+	padding: var(--size-4-2);
+}
+
+.inbox-popover-title {
+	font-size: var(--font-ui-smaller);
+	font-weight: 600;
+	color: var(--text-faint);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	padding: var(--size-4-1) var(--size-4-2) var(--size-4-2);
+}
+
+/* Filter panel */
+
+.inbox-filter-section {
+	padding: var(--size-4-1) 0 var(--size-4-2);
+}
+
+.inbox-filter-section + .inbox-filter-section {
+	border-top: 1px solid var(--background-modifier-border);
+	padding-top: var(--size-4-2);
+}
+
+.inbox-filter-label {
+	font-size: var(--font-ui-smaller);
+	font-weight: 600;
+	color: var(--text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	padding: 0 var(--size-4-2) var(--size-4-1);
+	display: block;
+}
+
+.inbox-filter-option {
+	display: block;
+	width: 100%;
+	text-align: left;
+	padding: var(--size-4-1) var(--size-4-2);
+	border: none;
+	border-radius: var(--radius-s);
+	background: transparent;
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+	transition: background-color 0.1s ease;
+	box-shadow: none;
+}
+
+.inbox-filter-option:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.inbox-filter-option.is-active {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-accent);
+	font-weight: 500;
+}
+
+/* Display panel */
+
+.inbox-display-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--size-4-1) var(--size-4-2);
+	gap: var(--size-4-4);
+}
+
+.inbox-display-label {
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	white-space: nowrap;
+}
+
+.inbox-display-select {
+	appearance: none;
+	-webkit-appearance: none;
+	background-color: var(--background-modifier-border);
+	border: none;
+	border-radius: var(--radius-s);
+	color: var(--text-normal);
+	font-size: var(--font-ui-smaller);
+	padding: 2px 22px 2px 8px;
+	cursor: pointer;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 6px center;
+}
+
+.inbox-display-select:focus {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+.inbox-display-divider {
+	height: 1px;
+	background-color: var(--background-modifier-border);
+	margin: var(--size-4-1) 0;
+}
+
+.inbox-display-props {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 5px;
+	padding: var(--size-4-1) var(--size-4-2) var(--size-4-2);
+}
+
+.inbox-prop-pill {
+	padding: 2px 10px;
+	border-radius: var(--radius-l);
+	border: 1px solid var(--background-modifier-border);
+	background: transparent;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-weight: 500;
+	cursor: pointer;
+	transition: background-color 0.1s ease, color 0.1s ease, border-color 0.1s ease;
+	box-shadow: none;
+}
+
+.inbox-prop-pill:hover {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.inbox-prop-pill.is-active {
+	background-color: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+/* ── Custom toggle ── */
+
+.inbox-toggle {
+	position: relative;
+	width: 32px;
+	height: 18px;
+	border-radius: var(--radius-l);
+	background-color: var(--background-modifier-border);
+	cursor: pointer;
+	transition: background-color 0.15s ease;
+	flex-shrink: 0;
+}
+
+.inbox-toggle::after {
+	content: "";
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background-color: var(--text-faint);
+	transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.inbox-toggle.is-on {
+	background-color: var(--interactive-accent);
+}
+
+.inbox-toggle.is-on::after {
+	transform: translateX(14px);
+	background-color: var(--text-on-accent);
+}
+
+/* ── Ribbon badge ── */
+
+.inbox-ribbon-badge {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	min-width: 14px;
+	height: 14px;
+	padding: 0 3px;
+	border-radius: var(--radius-l);
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: 9px;
+	font-weight: 700;
+	line-height: 14px;
+	text-align: center;
+	pointer-events: none;
+}
+
+/* The ribbon icon parent needs relative positioning for the badge */
+.side-dock-ribbon-action:has(.inbox-ribbon-badge) {
+	position: relative;
+}
+
+/* ── Snooze modal ── */
+
+.inbox-snooze-modal .modal-content,
+.inbox-snooze-modal.modal-content {
+	padding: var(--size-4-4);
+}
+
+.inbox-snooze-title {
+	margin: 0 0 var(--size-4-3);
+	font-size: var(--font-ui-medium);
+	font-weight: 600;
+	color: var(--text-normal);
+}
+
+.inbox-snooze-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.inbox-snooze-btn {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	width: 100%;
+	padding: var(--size-4-2) var(--size-4-3);
+	border: none;
+	border-radius: var(--radius-s);
+	background: transparent;
+	cursor: pointer;
+	transition: background-color 0.1s ease;
+	text-align: left;
+	box-shadow: none;
+	gap: var(--size-4-3);
+}
+
+.inbox-snooze-btn:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.inbox-snooze-label {
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	font-weight: 450;
+}
+
+.inbox-snooze-sublabel {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+	white-space: nowrap;
+}
+
+.inbox-snooze-custom .inbox-snooze-label {
+	color: var(--text-accent);
+}
+
+/* ── Custom snooze / add-to-inbox modal fields ── */
+
+.inbox-custom-fields {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-3);
+	margin-bottom: var(--size-4-4);
+}
+
+.inbox-field-label {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	font-weight: 500;
+}
+
+.inbox-field-label input {
+	background-color: var(--background-modifier-form-field);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	padding: var(--size-4-1) var(--size-4-2);
+	width: 100%;
+}
+
+.inbox-field-label input:focus {
+	outline: none;
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 25%, transparent);
+}
+
+.inbox-modal-footer {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: var(--size-4-3);
+}
+
+/* ── Scrollbar ── */
+
+.inbox-container::-webkit-scrollbar {
+	width: 4px;
+}
+
+.inbox-container::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.inbox-container::-webkit-scrollbar-thumb {
+	background-color: var(--scrollbar-thumb-bg);
+	border-radius: 2px;
+}
+
+/* Settings page — color swatch next to source name */
+.tm-calendar-source-swatch {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	margin-right: 6px;
+	vertical-align: middle;
+	flex-shrink: 0;
+}
+
+/* Inbox — line-jump flash highlight */
+@keyframes tm-inbox-flash {
+	0%   { box-shadow: inset 0 0 0 9999px var(--text-highlight-bg); }
+	70%  { box-shadow: inset 0 0 0 9999px var(--text-highlight-bg); }
+	100% { box-shadow: inset 0 0 0 9999px transparent; }
+}
+.tm-inbox-line-flash {
+	animation: tm-inbox-flash 1.4s ease-out forwards !important;
+}

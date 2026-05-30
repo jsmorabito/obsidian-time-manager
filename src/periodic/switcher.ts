@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-misused-promises */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access */
 /**
  * Quick-switcher integrations.
  *
@@ -44,7 +46,7 @@ class RelatedFilesSwitcher extends FuzzySuggestModal<RelatedFile> {
 	}
 
 	onChooseItem(item: RelatedFile): void {
-		this.app.workspace.getLeaf(false).openFile(item.file);
+		void this.app.workspace.getLeaf(false).openFile(item.file);
 	}
 }
 

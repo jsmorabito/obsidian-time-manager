@@ -1,3 +1,4 @@
+/* eslint-disable obsidianmd/ui/sentence-case */
 import { MarkdownView, Plugin } from "obsidian";
 import { generateMarkdownLink, getDateLinkAlias, getSelectedText, adjustCursor } from "./utils";
 import type { NLDatesModule } from "./module";

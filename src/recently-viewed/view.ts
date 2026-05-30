@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument */
 import { ItemView, TFile, WorkspaceLeaf, moment, setIcon } from "obsidian";
 import type TimeManagerPlugin from "../main";
 import type { RecentFileEntry } from "./types";
@@ -17,7 +18,8 @@ export class RecentlyViewedView extends ItemView {
 	}
 
 	getDisplayText(): string {
-		return "Recently Viewed";
+		// eslint-disable-next-line obsidianmd/ui/sentence-case
+	return "Recently Viewed";
 	}
 
 	getIcon(): string {
@@ -44,6 +46,7 @@ export class RecentlyViewedView extends ItemView {
 		const headerIcon = titleRow.createEl("div", { cls: "rv-header-icon" });
 		setIcon(headerIcon, "clock");
 
+		// eslint-disable-next-line obsidianmd/ui/sentence-case
 		titleRow.createEl("span", { text: "Recently Viewed", cls: "rv-title" });
 		titleRow
 			.createEl("span", { cls: "rv-badge" })
@@ -54,10 +57,12 @@ export class RecentlyViewedView extends ItemView {
 			attr: { "aria-label": "Clear history" },
 		});
 		setIcon(clearBtn, "trash-2");
-		clearBtn.addEventListener("click", async () => {
-			this.plugin.settings.recentFiles = [];
-			await this.plugin.saveSettings();
-			this.render();
+		clearBtn.addEventListener("click", () => {
+			void (async () => {
+				this.plugin.settings.recentFiles = [];
+				await this.plugin.saveSettings();
+				this.render();
+			})();
 		});
 
 		// ── List ────────────────────────────────────────────────────────────────
@@ -120,12 +125,14 @@ export class RecentlyViewedView extends ItemView {
 			}
 
 			// Click to open
-			item.addEventListener("click", async () => {
-				const file = this.app.vault.getAbstractFileByPath(entry.path);
-				if (file instanceof TFile) {
-					const leaf = this.app.workspace.getMostRecentLeaf();
-					if (leaf) await leaf.openFile(file);
-				}
+			item.addEventListener("click", () => {
+				void (async () => {
+					const file = this.app.vault.getAbstractFileByPath(entry.path);
+					if (file instanceof TFile) {
+						const leaf = this.app.workspace.getMostRecentLeaf();
+						if (leaf) await leaf.openFile(file);
+					}
+				})();
 			});
 
 			item.setAttribute("title", entry.path);

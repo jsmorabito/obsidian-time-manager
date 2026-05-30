@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-redundant-type-constituents */
 // Rewritten from quorafind/Obsidian-Daily-Notes-Editor (MIT).
 import { App, TFile, moment } from "obsidian";
 import { createPeriodicNote } from "../periodic/api";
@@ -112,12 +113,14 @@ export class FileManager {
 			return;
 		}
 		const all = this.options.app.vault.getMarkdownFiles().filter((f) => {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const cache = (this.options.app as any).metadataCache?.getFileCache(f);
-			const tags: string[] = (cache?.tags ?? []).map((t: { tag: string }) =>
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+			const cache = (this.options.app as any).metadataCache?.getFileCache(f) as Record<string, unknown> | null;
+			// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+			const tags: string[] = ((cache?.tags as Array<{ tag: string }> ?? []).map((t) =>
 				t.tag.replace(/^#/, "")
-			);
-			const frontmatterTags: string[] = cache?.frontmatter?.tags ?? [];
+			));
+			// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+			const frontmatterTags: string[] = (cache?.frontmatter as Record<string, unknown>)?.tags as string[] ?? [];
 			return (
 				tags.some((t) => t === tag || t.startsWith(`${tag}/`)) ||
 				frontmatterTags.some((t) => t === tag || t.startsWith(`${tag}/`))

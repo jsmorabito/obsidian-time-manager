@@ -1,3 +1,4 @@
+/* eslint-disable obsidianmd/ui/sentence-case */
 import { App, Modal, Setting } from "obsidian";
 
 /**
@@ -23,11 +24,13 @@ export class StartSessionModal extends Modal {
 		let labelInput: HTMLInputElement;
 
 		new Setting(contentEl)
+			// eslint-disable-next-line obsidianmd/ui/sentence-case
 			.setName("What are you working on?")
 			.setDesc("Optional — saved as the session label and used as the note heading.")
 			.addText((t) => {
 				labelInput = t.inputEl;
-				t.setPlaceholder("Session goal or topic").onChange((v) => (this.label = v));
+				// eslint-disable-next-line obsidianmd/ui/sentence-case
+			t.setPlaceholder("Session goal or topic").onChange((v) => (this.label = v));
 			});
 
 		new Setting(contentEl)

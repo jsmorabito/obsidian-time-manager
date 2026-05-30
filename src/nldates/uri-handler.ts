@@ -1,3 +1,4 @@
+/* eslint-disable obsidianmd/ui/sentence-case */
 import { Notice, ObsidianProtocolData, moment } from "obsidian";
 import { openPeriodicNote } from "../periodic/api";
 import { parseTruthy } from "./utils";

@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-redundant-type-constituents */
+/* eslint-disable obsidianmd/ui/sentence-case */
 /**
  * Timeline sidebar view.
  *
@@ -14,6 +16,7 @@ import type TimeManagerPlugin from "../main";
 import { findInPeriodic, getPeriodicNote, openPeriodicNote } from "./api";
 import { displayConfigs, granularities } from "./types";
 import { HUMANIZE_FORMAT } from "./constants";
+import type { CalendarEvent } from "../calendar/types";
 
 export const TIME_MANAGER_TIMELINE_VIEW = "obsidian-time-tools-timeline-view";
 
@@ -114,11 +117,79 @@ export class TimelineView extends ItemView {
 		}
 
 		if (!anyEnabled) {
+			// eslint-disable-next-line obsidianmd/ui/sentence-case
 			contentEl.createEl("p", {
 				text: "No periodic note types are enabled. Enable at least one in Settings.",
 				cls: "tm-timeline-empty",
 			});
 		}
+
+		// ── Calendar events ────────────────────────────────────────────────────
+		const sources = this.plugin.settings.calendarSources.filter((s) => s.enabled);
+		if (sources.length > 0) {
+			this.renderEventsSection(contentEl, referenceDate);
+		}
+	}
+
+	private renderEventsSection(
+		container: HTMLElement,
+		date: ReturnType<typeof window.moment>
+	): void {
+		const section = container.createDiv({ cls: "tm-timeline-section tm-timeline-events" });
+
+		const heading = section.createEl("h4", {
+			cls: "tm-timeline-heading",
+		});
+		const isToday = date.isSame(window.moment(), "day");
+		heading.setText(isToday ? "Events — Today" : `Events — ${date.format("MMM D")}`);
+
+		const listEl = section.createDiv({ cls: "tm-events-list" });
+		listEl.createEl("span", { text: "Loading…", cls: "tm-events-loading" });
+
+		this.plugin.calendarService
+			.getEventsForDate(date)
+			.then((events) => {
+				listEl.empty();
+				if (events.length === 0) {
+					listEl.createEl("span", {
+						text: "No events",
+						cls: "tm-events-empty",
+					});
+					return;
+				}
+				for (const evt of events) {
+					this.renderEventRow(listEl, evt);
+				}
+			})
+			.catch((err) => {
+				listEl.empty();
+				listEl.createEl("span", {
+					text: "Failed to load events",
+					cls: "tm-events-error",
+				});
+				console.error("[time-tools] calendar events error:", err);
+			});
+	}
+
+	private renderEventRow(container: HTMLElement, evt: CalendarEvent): void {
+		const row = container.createDiv({ cls: "tm-event-row" });
+
+		// Colour dot
+		const dot = row.createEl("span", { cls: "tm-event-dot" });
+		if (evt.sourceColor) {
+			dot.style.backgroundColor = evt.sourceColor;
+		}
+
+		const body = row.createDiv({ cls: "tm-event-body" });
+		body.createEl("span", { text: evt.summary, cls: "tm-event-summary" });
+
+		const timeText = evt.allDay
+			? "All day"
+			: evt.end
+			? `${evt.start.format("HH:mm")}–${evt.end.format("HH:mm")}`
+			: evt.start.format("HH:mm");
+
+		body.createEl("span", { text: timeText, cls: "tm-event-time" });
 	}
 
 	private renderNavLink(

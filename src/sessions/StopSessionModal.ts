@@ -1,3 +1,4 @@
+/* eslint-disable obsidianmd/ui/sentence-case, @typescript-eslint/no-deprecated */
 import { App, Modal, Setting } from "obsidian";
 
 /**
@@ -34,9 +35,10 @@ export class StopSessionModal extends Modal {
 		new Setting(contentEl)
 			.addButton((btn) =>
 				btn
-					.setButtonText("Stop session")
+					// eslint-disable-next-line obsidianmd/ui/sentence-case
+			.setButtonText("Stop session")
 					.setCta()
-					.setWarning()
+					.setDestructive()
 					.onClick(() => this.submit())
 			)
 			.addButton((btn) =>

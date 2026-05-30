@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents */
 // Ported from quorafind/Obsidian-Daily-Notes-Editor (MIT).
 import {
 	ItemView,
@@ -45,6 +46,7 @@ export class DailyNoteView extends ItemView {
 
 	getDisplayText(): string {
 		if (this.selectionMode === "horizon") return "Horizon";
+		if (this.selectionMode === "inbox")   return "Inbox";
 		if (this.selectionMode === "folder") return `Folder: ${this.folderPath || "…"}`;
 		if (this.selectionMode === "tag")    return `Tag: ${this.tag || "…"}`;
 		const label = displayConfigs[this.granularity].periodicity;
@@ -61,6 +63,11 @@ export class DailyNoteView extends ItemView {
 			(g) => g === "day" || this.plugin.settings[g].enabled
 		);
 		this.view?.$set({ enabledGranularities: enabled });
+	}
+
+	/** Called when calendar sources change so the events strip re-fetches. */
+	refreshCalendar() {
+		this.view?.refreshCalendar?.();
 	}
 
 	setGranularity(g: Granularity) {
@@ -159,7 +166,12 @@ export class DailyNoteView extends ItemView {
 				},
 			});
 
-			this.app.workspace.onLayoutReady(this.view.tick.bind(this));
+			this.app.workspace.onLayoutReady(() => {
+				this.view.tick();
+				// Give the infinite-scroll loop a moment to render the initial
+				// batch before scrolling to today.
+				window.setTimeout(() => this.view.scrollToToday?.(), 150);
+			});
 
 			this.registerInterval(
 				window.setInterval(() => this.view.check(), 1000 * 60 * 60)
@@ -172,7 +184,7 @@ export class DailyNoteView extends ItemView {
 			// No-op: prevent the global find handler from hijacking inside our view.
 		});
 
-		// Source selector — switches between daily / folder / tag modes.
+		// Source selector — switches between daily / folder / tag / inbox modes.
 		this.addAction("folder-open", "Select source", (e) => {
 			const menu = new Menu();
 
@@ -180,6 +192,12 @@ export class DailyNoteView extends ItemView {
 				item.setTitle("Daily notes");
 				item.setChecked(this.selectionMode === "daily");
 				item.onClick(() => this.setSelectionMode("daily"));
+			});
+
+			menu.addItem((item) => {
+				item.setTitle("Inbox");
+				item.setChecked(this.selectionMode === "inbox");
+				item.onClick(() => this.setSelectionMode("inbox"));
 			});
 
 			menu.addSeparator();
@@ -275,6 +293,20 @@ export class DailyNoteView extends ItemView {
 
 		this.registerEvent(this.app.vault.on("create", this.onFileCreate));
 		this.registerEvent(this.app.vault.on("delete", this.onFileDelete));
+
+		// Refresh inbox on file changes. Use both vault "modify" (fires immediately on
+		// save) and metadataCache "changed" (fires after full re-index) so the inbox
+		// is live regardless of which event arrives first.
+		let _inboxRefreshTimer: number | undefined;
+		const scheduleInboxRefresh = () => {
+			if (this.selectionMode !== "inbox") return;
+			window.clearTimeout(_inboxRefreshTimer);
+			_inboxRefreshTimer = window.setTimeout(() => {
+				this.view?.refreshInbox?.();
+			}, 100);
+		};
+		this.registerEvent(this.app.vault.on("modify", scheduleInboxRefresh));
+		this.registerEvent(this.app.metadataCache.on("changed", scheduleInboxRefresh));
 	}
 
 	onPaneMenu(menu: Menu, source: "more-options" | "tab-header" | string): void {

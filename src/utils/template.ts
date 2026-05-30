@@ -1,6 +1,8 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument */
 // Template substitution. Ported from liamcain/obsidian-periodic-notes (MIT).
 // Handles day, week, and month template variables. Quarter and year notes
 // get the shared date/time/title substitutions but no granularity-specific ones.
+// eslint-disable-next-line no-restricted-imports
 import type { Moment } from "moment";
 import { App, normalizePath, Notice } from "obsidian";
 import type { Granularity } from "../periodic/types";
@@ -125,6 +127,7 @@ export async function getTemplateContents(
 			`Obsidian Time Tools: failed to read template '${normalizedTemplatePath}'`,
 			err
 		);
+		// eslint-disable-next-line obsidianmd/ui/sentence-case
 		new Notice("Obsidian Time Tools: failed to read note template");
 		return "";
 	}

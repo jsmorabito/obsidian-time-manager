@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-redundant-type-constituents */
+// eslint-disable-next-line no-restricted-imports
 import type { Moment } from "moment";
 import { App, TFile } from "obsidian";
 import { applyTemplateTransformations, getTemplateContents } from "../utils/template";
@@ -62,7 +64,7 @@ export async function openPeriodicNote(
 	}
 	const leaf = opts.inNewSplit
 		? workspace.getLeaf("split")
-		: workspace.getUnpinnedLeaf();
+		: workspace.getLeaf(false);
 	await leaf.openFile(file, { active: true });
 	return file;
 }

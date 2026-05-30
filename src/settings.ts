@@ -1,6 +1,9 @@
-import { AbstractInputSuggest, App, Modal, Notice, PluginSettingTab, Setting, TFolder, moment } from "obsidian";
+/* eslint-disable obsidianmd/ui/sentence-case, @typescript-eslint/no-deprecated */
+import { App, Modal, Notice, PluginSettingTab, Setting, SettingDefinitionItem, SettingDefinitionPage, TFile, moment } from "obsidian";
 import type TimeManagerPlugin from "./main";
 import type { RecentFileEntry } from "./recently-viewed/types";
+import type { InboxDisplayOptions } from "./inbox/types";
+import { DEFAULT_INBOX_DISPLAY } from "./inbox/types";
 import {
 	DEFAULT_DAILY_NOTE_FORMAT,
 	DEFAULT_MONTHLY_NOTE_FORMAT,
@@ -10,6 +13,8 @@ import {
 } from "./periodic/constants";
 import { granularities, displayConfigs, type Granularity, type PeriodicConfig } from "./periodic/types";
 import type { DayOfWeek } from "./nldates/utils";
+import type { CalendarSource } from "./calendar/types";
+import { CALENDAR_COLORS } from "./calendar/types";
 
 // ── NL Dates settings ─────────────────────────────────────────────────────────
 
@@ -106,6 +111,18 @@ export interface TimeManagerSettings {
 
 	// Natural Language Dates
 	nlDates: NLDatesSettings;
+
+	// Calendar integration
+	calendarSources: CalendarSource[];
+
+	// Inbox
+	inboxDisplay: InboxDisplayOptions;
+	/** Tags that drive the inbox (without #). Default: ["inbox"]. */
+	inboxTags: string[];
+	/** If a file/line also carries any of these tags, it is suppressed from the inbox. */
+	inboxExcludeTags: string[];
+	/** Keys of inbox items the user has opened. "path" for file items, "path:line" for inline. */
+	readTaggedItems: string[];
 }
 
 export const DEFAULT_SETTINGS: TimeManagerSettings = {
@@ -151,44 +168,22 @@ export const DEFAULT_SETTINGS: TimeManagerSettings = {
 	recentFiles: [],
 	migratedFromDailyNotes: false,
 	nlDates: DEFAULT_NLDATES_SETTINGS,
+	calendarSources: [],
+	inboxDisplay: DEFAULT_INBOX_DISPLAY,
+	inboxTags: ["inbox"],
+	inboxExcludeTags: [],
+	readTaggedItems: [],
 };
 
-// ── Folder autocomplete ───────────────────────────────────────────────────────
-
-/**
- * Attaches to a text <input> and suggests existing vault folders as the user
- * types. Selecting a suggestion fills the input and fires its `input` event so
- * any bound onChange handler picks up the value.
- */
-class FolderSuggest extends AbstractInputSuggest<TFolder> {
-	private readonly input: HTMLInputElement;
-
-	constructor(app: App, inputEl: HTMLInputElement) {
-		super(app, inputEl);
-		this.input = inputEl;
-	}
-
-	getSuggestions(query: string): TFolder[] {
-		const lq = query.toLowerCase();
-		return this.app.vault
-			.getAllFolders(true)
-			.filter((f) => f.path.toLowerCase().includes(lq))
-			.sort((a, b) => a.path.localeCompare(b.path))
-			.slice(0, 20);
-	}
-
-	renderSuggestion(folder: TFolder, el: HTMLElement): void {
-		el.setText(folder.path || "/");
-	}
-
-	selectSuggestion(folder: TFolder): void {
-		this.input.value = folder.path;
-		this.input.dispatchEvent(new Event("input"));
-		this.close();
-	}
-}
-
 // ── Settings tab ──────────────────────────────────────────────────────────────
+
+const PERIOD_FORMAT_EXAMPLES: Record<Granularity, string> = {
+	day:     "YYYY-MM-DD",
+	week:    "gggg-[W]ww",
+	month:   "YYYY-MM",
+	quarter: "YYYY-[Q]Q",
+	year:    "YYYY",
+};
 
 export class TimeManagerSettingTab extends PluginSettingTab {
 	plugin: TimeManagerPlugin;
@@ -198,352 +193,513 @@ export class TimeManagerSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
-	private renderPeriodSection(
-		periodKey: Granularity,
-		title: string,
-		formatHelp: string
-	): void {
-		const config = this.plugin.settings[periodKey];
-
-		new Setting(this.containerEl).setName(title).setHeading();
-
-		new Setting(this.containerEl)
-			.setName(`Enable ${title.toLowerCase()}`)
-			.setDesc(
-				`Turn on to register ${title.toLowerCase()} commands. Reload the plugin after changing this to refresh the command palette.`
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(config.enabled).onChange(async (value) => {
-					config.enabled = value;
-					await this.plugin.saveSettings();
-				})
-			);
-
-		const formatSetting = new Setting(this.containerEl)
-			.setName("Date format")
-			.setDesc(formatHelp)
-			.addText((text) => {
-				text.setPlaceholder(config.format)
-					.setValue(config.format)
-					.onChange(async (value) => {
-						config.format = value.trim() || config.format;
-						previewEl.setText(`→ ${moment().format(config.format)}`);
-						await this.plugin.saveSettings();
-					});
-			});
-
-		// Live preview of what the current date looks like in the chosen format.
-		const previewEl = formatSetting.descEl.createEl("div", {
-			cls: "tm-format-preview",
-			text: `→ ${moment().format(config.format)}`,
-		});
-
-		new Setting(this.containerEl)
-			.setName("Folder")
-			.setDesc(`Folder to store ${title.toLowerCase()}. Leave blank for vault root.`)
-			.addText((text) => {
-				text.setPlaceholder("Notes/Daily")
-					.setValue(config.folder)
-					.onChange(async (value) => {
-						config.folder = value.trim();
-						await this.plugin.saveSettings();
-					});
-				new FolderSuggest(this.app, text.inputEl);
-			});
-
-		new Setting(this.containerEl)
-			.setName("Template file")
-			.setDesc("Path to a markdown file used as a template for new notes.")
-			.addText((text) =>
-				text
-					.setPlaceholder("Templates/Daily.md")
-					.setValue(config.templatePath)
-					.onChange(async (value) => {
-						config.templatePath = value.trim();
-						await this.plugin.saveSettings();
-					})
-			);
+	// Dot-notation support for nested settings (e.g. "nlDates.isAutosuggestEnabled", "day.folder").
+	getControlValue(key: string): unknown {
+		const parts = key.split(".");
+		let val: unknown = this.plugin.settings;
+		for (const part of parts) {
+			val = (val as Record<string, unknown>)[part];
+		}
+		return val;
 	}
 
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
+	async setControlValue(key: string, value: unknown): Promise<void> {
+		const parts = key.split(".");
+		let obj = this.plugin.settings as unknown as Record<string, unknown>;
+		for (let i = 0; i < parts.length - 1; i++) {
+			obj = obj[parts[i]] as Record<string, unknown>;
+		}
+		obj[parts[parts.length - 1]] = value;
+		await this.plugin.saveSettings();
+	}
 
-		// ── Periodic note sections ──────────────────────────────────────────
-		this.renderPeriodSection("day",     "Daily notes",     "Moment.js format string, e.g. YYYY-MM-DD.");
-		this.renderPeriodSection("week",    "Weekly notes",    "Moment.js format string, e.g. gggg-[W]ww.");
-		this.renderPeriodSection("month",   "Monthly notes",   "Moment.js format string, e.g. YYYY-MM.");
-		this.renderPeriodSection("quarter", "Quarterly notes", "Moment.js format string, e.g. YYYY-[Q]Q.");
-		this.renderPeriodSection("year",    "Yearly notes",    "Moment.js format string, e.g. YYYY.");
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		const s = this.plugin.settings;
 
-		// ── Sessions ────────────────────────────────────────────────────────
-		new Setting(containerEl).setName("Sessions").setHeading();
-
-		new Setting(containerEl)
-			.setName("Sessions folder")
-			.setDesc("Folder where session notes are stored. Leave blank to use the vault root.")
-			.addText((text) => {
-				text.setPlaceholder("Sessions")
-					.setValue(this.plugin.settings.sessionsFolder)
-					.onChange(async (value) => {
-						this.plugin.settings.sessionsFolder = value.trim();
-						await this.plugin.saveSettings();
-					});
-				new FolderSuggest(this.app, text.inputEl);
-			});
-
-		// ── Multi-note editor view ──────────────────────────────────────────
-		new Setting(containerEl).setName("Multi-note editor view").setHeading();
-
-		new Setting(containerEl)
-			.setName("Hide frontmatter")
-			.setDesc("Hide frontmatter blocks inside notes rendered in the editor view.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.hideFrontmatter)
-					.onChange(async (value) => {
-						this.plugin.settings.hideFrontmatter = value;
-						document.body.classList.toggle("tm-hide-frontmatter", value);
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Hide backlinks")
-			.setDesc("Hide backlink panes inside notes rendered in the editor view.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.hideBacklinks)
-					.onChange(async (value) => {
-						this.plugin.settings.hideBacklinks = value;
-						document.body.classList.toggle("tm-hide-backlinks", value);
-						await this.plugin.saveSettings();
-					})
-			);
-
-		// ── Recently Viewed ─────────────────────────────────────────────────
-		new Setting(containerEl).setName("Recently Viewed").setHeading();
-
-		new Setting(containerEl)
-			.setName("Max items")
-			.setDesc("Maximum number of files to keep in history (5–50).")
-			.addSlider((slider) =>
-				slider
-					.setLimits(5, 50, 5)
-					.setValue(this.plugin.settings.rvMaxItems)
-					.setDynamicTooltip()
-					.onChange(async (value) => {
-						this.plugin.settings.rvMaxItems = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Show timestamps")
-			.setDesc('Display relative time (e.g. "5m ago") next to each file.')
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.rvShowTimestamp)
-					.onChange(async (value) => {
-						this.plugin.settings.rvShowTimestamp = value;
-						await this.plugin.saveSettings();
-						this.plugin.refreshRecentlyViewedPanel();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Show folder path")
-			.setDesc("Display the folder path below each file name.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.rvShowPath)
-					.onChange(async (value) => {
-						this.plugin.settings.rvShowPath = value;
-						await this.plugin.saveSettings();
-						this.plugin.refreshRecentlyViewedPanel();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Clear history")
-			.setDesc("Remove all files from the recently viewed list.")
-			.addButton((btn) =>
-				btn
-					.setButtonText("Clear history")
-					.setWarning()
-					.onClick(async () => {
-						this.plugin.settings.recentFiles = [];
-						await this.plugin.saveSettings();
-						this.plugin.refreshRecentlyViewedPanel();
-					})
-			);
-
-		// ── Startup ─────────────────────────────────────────────────────────
-		new Setting(containerEl).setName("Startup").setHeading();
-
-		new Setting(containerEl)
-			.setName("Open editor on startup")
-			.setDesc(
-				"On startup, create today's daily note if missing and open the multi-note editor."
-			)
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.createAndOpenEditorOnStartup)
-					.onChange(async (value) => {
-						this.plugin.settings.createAndOpenEditorOnStartup = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Open periodic note on startup")
-			.setDesc(
-				"Also open the current note for the chosen granularity when Obsidian loads. Only enabled granularities are shown."
-			)
-			.addDropdown((dd) => {
-				dd.addOption("", "None");
-				// Only populate enabled granularities so the user can't select
-				// something that would silently do nothing at startup.
-				for (const g of granularities) {
-					if (this.plugin.settings[g].enabled) {
-						const label = displayConfigs[g].periodicity;
-						dd.addOption(g, label.charAt(0).toUpperCase() + label.slice(1) + " note");
-					}
-				}
-				dd.setValue(this.plugin.settings.openNoteOnStartup ?? "");
-				dd.onChange(async (value) => {
-					this.plugin.settings.openNoteOnStartup = value ? (value as Granularity) : null;
-					await this.plugin.saveSettings();
-				});
-			});
-
-		// ── Natural Language Dates ───────────────────────────────────────────
-		new Setting(containerEl).setName("Natural language dates").setHeading();
-
-		new Setting(containerEl)
-			.setName("Enable date autosuggestion")
-			.setDesc(`Show date completions when you type the trigger phrase (default: @).`)
-			.addToggle((t) =>
-				t
-					.setValue(this.plugin.settings.nlDates.isAutosuggestEnabled)
-					.onChange(async (v) => {
-						this.plugin.settings.nlDates.isAutosuggestEnabled = v;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Trigger phrase")
-			.setDesc("Character(s) that open the date autosuggest. Default: @")
-			.addText((t) =>
-				t
-					.setPlaceholder("@")
-					.setValue(this.plugin.settings.nlDates.autocompleteTriggerPhrase)
-					.onChange(async (v) => {
-						this.plugin.settings.nlDates.autocompleteTriggerPhrase = v.trim() || "@";
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Wrap suggestions in links")
-			.setDesc("Autosuggest inserts [[wikilinks]] by default. Disable to insert plain dates.")
-			.addToggle((t) =>
-				t
-					.setValue(this.plugin.settings.nlDates.autosuggestToggleLink)
-					.onChange(async (v) => {
-						this.plugin.settings.nlDates.autosuggestToggleLink = v;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Default alias format")
-			.setDesc(
-				"Moment format used as the display alias when wrapping in a wikilink. Leave blank for none."
-			)
-			.addText((t) =>
-				t
-					.setPlaceholder("ddd MMM D")
-					.setValue(this.plugin.settings.nlDates.defaultAlias)
-					.onChange(async (v) => {
-						this.plugin.settings.nlDates.defaultAlias = v.trim();
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Time format")
-			.setDesc("Moment format for time-only output (e.g. HH:mm).")
-			.addMomentFormat((mf) =>
-				mf
-					.setDefaultFormat("HH:mm")
-					.setValue(this.plugin.settings.nlDates.timeFormat)
-					.onChange(async (v) => {
-						this.plugin.settings.nlDates.timeFormat = v.trim() || "HH:mm";
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Date-time separator")
-			.setDesc("Character(s) placed between date and time when inserting both. Default: space.")
-			.addText((t) =>
-				t
-					.setPlaceholder(" ")
-					.setValue(this.plugin.settings.nlDates.separator)
-					.onChange(async (v) => {
-						this.plugin.settings.nlDates.separator = v === "" ? " " : v;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Enable time: prefix in autosuggest")
-			.setDesc(
-				'When on, typing @time:now inserts a formatted time string instead of a date. Off by default for testing.'
-			)
-			.addToggle((t) =>
-				t
-					.setValue(this.plugin.settings.nlDates.timePrefixEnabled)
-					.onChange(async (v) => {
-						this.plugin.settings.nlDates.timePrefixEnabled = v;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Enable URI handler (obsidian://time-tools)")
-			.setDesc(
-				"Register the obsidian://time-tools?day=<date> URI so external apps can open periodic notes. Off by default."
-			)
-			.addToggle((t) =>
-				t
-					.setValue(this.plugin.settings.nlDates.uriHandlerEnabled)
-					.onChange(async (v) => {
-						this.plugin.settings.nlDates.uriHandlerEnabled = v;
-						await this.plugin.saveSettings();
-						// Let the user know a restart is needed to pick up the change.
-						if (v) {
-							const { Notice } = await import("obsidian");
-							new Notice("Reload Obsidian to activate the URI handler.");
+		return [
+			// ── Startup (main tab) ───────────────────────────────────────────
+			{
+				name: "Open editor on startup",
+				desc: "On startup, create today's daily note if missing and open the multi-note editor.",
+				control: { type: "toggle" as const, key: "createAndOpenEditorOnStartup" },
+			},
+			{
+				name: "Open periodic note on startup",
+				desc: "Also open the current note for the chosen granularity when Obsidian loads. Only enabled granularities are shown.",
+				render: (setting) => {
+					setting.addDropdown((dd) => {
+						dd.addOption("", "None");
+						for (const g of granularities) {
+							if (s[g].enabled) {
+								const label = displayConfigs[g].periodicity;
+								dd.addOption(g, label.charAt(0).toUpperCase() + label.slice(1) + " note");
+							}
 						}
+						dd.setValue(s.openNoteOnStartup ?? "");
+						dd.onChange(async (value) => {
+							s.openNoteOnStartup = value ? (value as Granularity) : null;
+							await this.plugin.saveSettings();
+						});
+					});
+				},
+			},
+
+			// ── Sub-pages ────────────────────────────────────────────────────
+			{
+				type: "page" as const,
+				name: "Periodic notes",
+				desc: "Daily, weekly, monthly, quarterly, and yearly notes.",
+				items: granularities.map((g) => this.periodicNotePage(g)),
+			},
+			{
+				type: "page" as const,
+				name: "Editor view",
+				desc: "Multi-note editor display options.",
+				items: [
+					{
+						name: "Hide frontmatter",
+						desc: "Hide frontmatter blocks inside notes rendered in the editor view.",
+						render: (setting) => {
+							setting.addToggle((t) =>
+								t.setValue(s.hideFrontmatter).onChange(async (v) => {
+									s.hideFrontmatter = v;
+									document.body.classList.toggle("tm-hide-frontmatter", v);
+									await this.plugin.saveSettings();
+								})
+							);
+						},
+					},
+					{
+						name: "Hide backlinks",
+						desc: "Hide backlink panes inside notes rendered in the editor view.",
+						render: (setting) => {
+							setting.addToggle((t) =>
+								t.setValue(s.hideBacklinks).onChange(async (v) => {
+									s.hideBacklinks = v;
+									document.body.classList.toggle("tm-hide-backlinks", v);
+									await this.plugin.saveSettings();
+								})
+							);
+						},
+					},
+				],
+			},
+			{
+				type: "page" as const,
+				name: "Sessions",
+				items: [
+					{
+						name: "Sessions folder",
+						desc: "Folder where session notes are stored. Leave blank for vault root.",
+						control: { type: "folder" as const, key: "sessionsFolder", includeRoot: true },
+					},
+				],
+			},
+			{
+				type: "page" as const,
+				name: "Recently viewed",
+				items: [
+					{
+						name: "Max items",
+						desc: "Maximum number of files to keep in history (5–50).",
+						control: { type: "slider" as const, key: "rvMaxItems", min: 5, max: 50, step: 5 },
+					},
+					{
+						name: "Show timestamps",
+						desc: 'Display relative time (e.g. "5m ago") next to each file.',
+						render: (setting) => {
+							setting.addToggle((t) =>
+								t.setValue(s.rvShowTimestamp).onChange(async (v) => {
+									s.rvShowTimestamp = v;
+									await this.plugin.saveSettings();
+									this.plugin.refreshRecentlyViewedPanel();
+								})
+							);
+						},
+					},
+					{
+						name: "Show folder path",
+						desc: "Display the folder path below each file name.",
+						render: (setting) => {
+							setting.addToggle((t) =>
+								t.setValue(s.rvShowPath).onChange(async (v) => {
+									s.rvShowPath = v;
+									await this.plugin.saveSettings();
+									this.plugin.refreshRecentlyViewedPanel();
+								})
+							);
+						},
+					},
+					{
+						name: "Clear history",
+						desc: "Remove all files from the recently viewed list.",
+						render: (setting) => {
+							setting.addButton((btn) =>
+								btn
+									.setButtonText("Clear history")
+									.setDestructive()
+									.onClick(async () => {
+										s.recentFiles = [];
+										await this.plugin.saveSettings();
+										this.plugin.refreshRecentlyViewedPanel();
+									})
+							);
+						},
+					},
+				],
+			},
+			{
+				type: "page" as const,
+				name: "Natural language dates",
+				items: this.nlDatesItems(),
+			},
+			{
+				type: "page" as const,
+				name: "Calendar",
+				items: this.calendarItems(),
+			},
+			{
+				type: "page" as const,
+				name: "Presets",
+				items: this.presetsItems(),
+			},
+			{
+				type: "page" as const,
+				name: "Inbox",
+				desc: "Configure which tags feed the Inbox tagged section.",
+				items: this.inboxItems(),
+			},
+		];
+	}
+
+	private periodicNotePage(g: Granularity): SettingDefinitionPage {
+		const config = this.plugin.settings[g];
+		const label = displayConfigs[g].periodicity;
+		const caps = label.charAt(0).toUpperCase() + label.slice(1);
+		const example = PERIOD_FORMAT_EXAMPLES[g];
+
+		return {
+			type: "page",
+			name: `${caps} notes`,
+			items: [
+				{
+					name: `Enable ${label} notes`,
+					desc: `Turn on to register ${label} commands. Reload the plugin after changing this to refresh the command palette.`,
+					render: (setting) => {
+						setting.addToggle((t) =>
+							t.setValue(config.enabled).onChange(async (v) => {
+								config.enabled = v;
+								await this.plugin.saveSettings();
+							})
+						);
+					},
+				},
+				{
+					name: "Date format",
+					desc: `Moment.js format string (e.g. ${example}).`,
+					render: (setting) => {
+						const previewEl = setting.descEl.createEl("div", {
+							cls: "tm-format-preview",
+							text: `→ ${moment().format(config.format)}`,
+						});
+						setting.addText((t) =>
+							t
+								.setPlaceholder(config.format)
+								.setValue(config.format)
+								.onChange(async (v) => {
+									config.format = v.trim() || config.format;
+									previewEl.setText(`→ ${moment().format(config.format)}`);
+									await this.plugin.saveSettings();
+								})
+						);
+					},
+				},
+				{
+					name: "Folder",
+					desc: `Folder to store ${label} notes. Leave blank for vault root.`,
+					control: { type: "folder" as const, key: `${g}.folder`, includeRoot: true },
+				},
+				{
+					name: "Template file",
+					desc: "Path to a markdown file used as a template for new notes.",
+					control: {
+						type: "file" as const,
+						key: `${g}.templatePath`,
+						filter: (f: TFile) => f.extension === "md",
+					},
+				},
+			],
+		};
+	}
+
+	private nlDatesItems(): SettingDefinitionItem[] {
+		const nl = this.plugin.settings.nlDates;
+		return [
+			{
+				name: "Enable date autosuggestion",
+				desc: "Show date completions when you type the trigger phrase (default: @).",
+				control: { type: "toggle" as const, key: "nlDates.isAutosuggestEnabled" },
+			},
+			{
+				name: "Trigger phrase",
+				desc: "Character(s) that open the date autosuggest. Default: @",
+				render: (setting) => {
+					setting.addText((t) =>
+						t
+							.setPlaceholder("@")
+							.setValue(nl.autocompleteTriggerPhrase)
+							.onChange(async (v) => {
+								nl.autocompleteTriggerPhrase = v.trim() || "@";
+								await this.plugin.saveSettings();
+							})
+					);
+				},
+			},
+			{
+				name: "Wrap suggestions in links",
+				desc: "Autosuggest inserts [[wikilinks]] by default. Disable to insert plain dates.",
+				control: { type: "toggle" as const, key: "nlDates.autosuggestToggleLink" },
+			},
+			{
+				name: "Default alias format",
+				desc: "Moment format used as the display alias when wrapping in a wikilink. Leave blank for none.",
+				render: (setting) => {
+					setting.addText((t) =>
+						t
+							.setPlaceholder("ddd MMM D")
+							.setValue(nl.defaultAlias)
+							.onChange(async (v) => {
+								nl.defaultAlias = v.trim();
+								await this.plugin.saveSettings();
+							})
+					);
+				},
+			},
+			{
+				name: "Time format",
+				desc: "Moment format for time-only output (e.g. HH:mm).",
+				render: (setting) => {
+					setting.addMomentFormat((mf) =>
+						mf
+							.setDefaultFormat("HH:mm")
+							.setValue(nl.timeFormat)
+							.onChange(async (v) => {
+								nl.timeFormat = v.trim() || "HH:mm";
+								await this.plugin.saveSettings();
+							})
+					);
+				},
+			},
+			{
+				name: "Date-time separator",
+				desc: "Character(s) placed between date and time when inserting both. Default: space.",
+				render: (setting) => {
+					setting.addText((t) =>
+						t
+							.setPlaceholder(" ")
+							.setValue(nl.separator)
+							.onChange(async (v) => {
+								nl.separator = v === "" ? " " : v;
+								await this.plugin.saveSettings();
+							})
+					);
+				},
+			},
+			{
+				name: "Enable time: prefix in autosuggest",
+				desc: "When on, typing @time:now inserts a formatted time string instead of a date. Off by default for testing.",
+				control: { type: "toggle" as const, key: "nlDates.timePrefixEnabled" },
+			},
+			{
+				name: "Enable URI handler (obsidian://time-tools)",
+				desc: "Register the obsidian://time-tools?day=<date> URI so external apps can open periodic notes. Off by default.",
+				render: (setting) => {
+					setting.addToggle((t) =>
+						t.setValue(nl.uriHandlerEnabled).onChange(async (v) => {
+							nl.uriHandlerEnabled = v;
+							await this.plugin.saveSettings();
+							if (v) new Notice("Reload Obsidian to activate the URI handler.");
+						})
+					);
+				},
+			},
+		];
+	}
+
+	private calendarItems(): SettingDefinitionItem[] {
+		const items: SettingDefinitionItem[] = [
+			{
+				name: "Add calendar source",
+				desc: "Connect an ICS/iCal feed (Google, Apple iCloud, Outlook…) or a local .ics file in your vault.",
+				render: (setting) => {
+					setting.addButton((btn) =>
+						btn.setButtonText("Add source").onClick(() => {
+							new AddCalendarSourceModal(this.app, this.plugin, () => this.update()).open();
+						})
+					);
+				},
+			},
+		];
+
+		for (const source of this.plugin.settings.calendarSources) {
+			const typeLabel = source.type === "url" ? "URL" : "File";
+			const shortValue =
+				source.value.length > 50 ? source.value.slice(0, 47) + "…" : source.value;
+
+			items.push({
+				name: source.name,
+				desc: `${typeLabel}: ${shortValue}`,
+				render: (setting) => {
+					// Colour swatch
+					const swatchEl = setting.nameEl.createEl("span", {
+						cls: "tm-calendar-source-swatch",
+						attr: { style: `background:${source.color || "var(--interactive-accent)"}` },
+					});
+					setting.nameEl.prepend(swatchEl);
+
+					setting
+						.addToggle((toggle) =>
+							toggle.setValue(source.enabled).onChange(async (value) => {
+								source.enabled = value;
+								this.plugin.calendarService.invalidate(source.id);
+								await this.plugin.saveSettings();
+								this.plugin.refreshCalendarViews();
+							})
+						)
+						.addButton((btn) =>
+							btn
+								.setButtonText("Refresh")
+								.setTooltip("Force re-fetch this source now")
+								.onClick(() => {
+									this.plugin.calendarService.invalidate(source.id);
+									this.plugin.refreshCalendarViews();
+									new Notice(`Refreshed "${source.name}"`);
+								})
+						)
+						.addButton((btn) =>
+							btn
+								.setButtonText("Delete")
+								.setDestructive()
+								.onClick(async () => {
+									this.plugin.settings.calendarSources =
+										this.plugin.settings.calendarSources.filter(
+											(c) => c.id !== source.id
+										);
+									this.plugin.calendarService.invalidate(source.id);
+									await this.plugin.saveSettings();
+									this.plugin.refreshCalendarViews();
+									this.update();
+								})
+						);
+				},
+			});
+		}
+
+		return items;
+	}
+
+	private inboxItems(): SettingDefinitionItem[] {
+		const items: SettingDefinitionItem[] = [
+			// ── Inbox tags ───────────────────────────────────────────────────────
+			{
+				name: "Inbox tags",
+				desc: "Files and lines carrying any of these tags will appear in the Tagged section. #inbox is always included.",
+				render: (setting) => {
+					setting.addButton((btn) =>
+						btn.setButtonText("Add tag").onClick(() => {
+							new AddInboxTagModal(this.app, this.plugin, "inbox", () => this.update()).open();
+						})
+					);
+				},
+			},
+		];
+
+		for (const tag of this.plugin.settings.inboxTags) {
+			const isDefault = tag === "inbox";
+			items.push({
+				name: "#" + tag,
+				desc: isDefault ? "Default — cannot be removed." : "",
+				render: (setting) => {
+					if (!isDefault) {
+						setting.addButton((btn) =>
+							btn
+								.setButtonText("Remove")
+								.setDestructive()
+								.onClick(async () => {
+									this.plugin.settings.inboxTags =
+										this.plugin.settings.inboxTags.filter((t) => t !== tag);
+									const filter = this.plugin.settings.inboxDisplay.inboxTagFilter;
+									if (filter) {
+										const updated = filter.filter((t) => t !== tag);
+										this.plugin.settings.inboxDisplay.inboxTagFilter =
+											updated.length > 0 ? updated : null;
+									}
+									await this.plugin.saveSettings();
+									this.update();
+								})
+						);
+					}
+				},
+			});
+		}
+
+		// ── Exclusion tags ───────────────────────────────────────────────────────
+		items.push({
+			name: "Exclusion tags",
+			desc: "If a file or line also carries any of these tags, it is hidden from the Tagged section — even if it matches an inbox tag. Useful for tags like #resolved or #done.",
+			render: (setting) => {
+				setting.addButton((btn) =>
+					btn.setButtonText("Add tag").onClick(() => {
+						new AddInboxTagModal(this.app, this.plugin, "exclude", () => this.update()).open();
 					})
-			);
+				);
+			},
+		});
 
-		// ── Presets ─────────────────────────────────────────────────────────
-		new Setting(containerEl).setName("Editor presets").setHeading();
+		if (this.plugin.settings.inboxExcludeTags.length === 0) {
+			items.push({
+				name: "No exclusion tags",
+				desc: "Add a tag above to start suppressing resolved items.",
+				render: () => { /* label only */ },
+			});
+		}
 
-		new Setting(containerEl)
-			.setName("Add preset")
-			.setDesc(
-				"Save a named selection (folder, tag, or daily) to quickly switch the editor view."
-			)
-			.addButton((btn) =>
-				btn.setButtonText("Add preset").onClick(() => {
-					new AddPresetModal(this.app, this.plugin, () => this.display()).open();
-				})
-			);
+		for (const tag of this.plugin.settings.inboxExcludeTags) {
+			items.push({
+				name: "#" + tag,
+				render: (setting) => {
+					setting.addButton((btn) =>
+						btn
+							.setButtonText("Remove")
+							.setDestructive()
+							.onClick(async () => {
+								this.plugin.settings.inboxExcludeTags =
+									this.plugin.settings.inboxExcludeTags.filter((t) => t !== tag);
+								await this.plugin.saveSettings();
+								this.update();
+							})
+					);
+				},
+			});
+		}
+
+		return items;
+	}
+
+	private presetsItems(): SettingDefinitionItem[] {
+		const items: SettingDefinitionItem[] = [
+			{
+				name: "Add preset",
+				desc: "Save a named selection (folder, tag, or daily) to quickly switch the editor view.",
+				render: (setting) => {
+					setting.addButton((btn) =>
+						btn.setButtonText("Add preset").onClick(() => {
+							new AddPresetModal(this.app, this.plugin, () => this.update()).open();
+						})
+					);
+				},
+			},
+		];
 
 		for (const preset of this.plugin.settings.presets) {
 			const modeDesc =
@@ -555,24 +711,28 @@ export class TimeManagerSettingTab extends PluginSettingTab {
 			const rangeDesc = preset.timeRange
 				? ` · ${PRESET_TIME_RANGE_OPTIONS[preset.timeRange] ?? preset.timeRange}`
 				: "";
-			const desc = modeDesc + rangeDesc;
 
-			new Setting(containerEl)
-				.setName(preset.name)
-				.setDesc(desc)
-				.addButton((btn) =>
-					btn
-						.setButtonText("Delete")
-						.setWarning()
-						.onClick(async () => {
-							this.plugin.settings.presets = this.plugin.settings.presets.filter(
-								(p) => p.id !== preset.id
-							);
-							await this.plugin.saveSettings();
-							this.display();
-						})
-				);
+			items.push({
+				name: preset.name,
+				desc: modeDesc + rangeDesc,
+				render: (setting) => {
+					setting.addButton((btn) =>
+						btn
+							.setButtonText("Delete")
+							.setDestructive()
+							.onClick(async () => {
+								this.plugin.settings.presets = this.plugin.settings.presets.filter(
+									(p) => p.id !== preset.id
+								);
+								await this.plugin.saveSettings();
+								this.update();
+							})
+					);
+				},
+			});
 		}
+
+		return items;
 	}
 }
 
@@ -670,6 +830,183 @@ export class AddPresetModal extends Modal {
 					};
 					this.plugin.settings.presets.push(preset);
 					await this.plugin.saveSettings();
+					this.onSave();
+					this.close();
+				})
+		);
+	}
+
+	onClose(): void {
+		this.contentEl.empty();
+	}
+}
+
+// ── Add-inbox-tag modal ───────────────────────────────────────────────────────
+
+export class AddInboxTagModal extends Modal {
+	plugin: TimeManagerPlugin;
+	/** "inbox" = add to inboxTags; "exclude" = add to inboxExcludeTags */
+	listType: "inbox" | "exclude";
+	onSave: () => void;
+	tag = "";
+
+	constructor(app: App, plugin: TimeManagerPlugin, listType: "inbox" | "exclude", onSave: () => void) {
+		super(app);
+		this.plugin = plugin;
+		this.listType = listType;
+		this.onSave = onSave;
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.empty();
+		const isExclude = this.listType === "exclude";
+		contentEl.createEl("h2", { text: isExclude ? "Add exclusion tag" : "Add inbox tag" });
+
+		new Setting(contentEl)
+			.setName("Tag")
+			.setDesc(
+				isExclude
+					? 'Items that also carry this tag will be hidden (e.g. "resolved" or "done").'
+					: 'Enter without the # (e.g. "review" or "action").'
+			)
+			.addText((t) =>
+				t
+					.setPlaceholder(isExclude ? "resolved" : "review")
+					.onChange((v) => (this.tag = v.trim().replace(/^#/, "")))
+			);
+
+		new Setting(contentEl).addButton((btn) =>
+			btn
+				.setButtonText("Add")
+				.setCta()
+				.onClick(async () => {
+					const tag = this.tag.toLowerCase();
+					if (!tag) {
+						new Notice("Please enter a tag name.");
+						return;
+					}
+					const list = isExclude
+						? this.plugin.settings.inboxExcludeTags
+						: this.plugin.settings.inboxTags;
+					if (list.includes(tag)) {
+						new Notice(`#${tag} is already in the list.`);
+						return;
+					}
+					list.push(tag);
+					await this.plugin.saveSettings();
+					this.onSave();
+					this.close();
+				})
+		);
+	}
+
+	onClose(): void {
+		this.contentEl.empty();
+	}
+}
+
+// ── Add-calendar-source modal ─────────────────────────────────────────────────
+
+export class AddCalendarSourceModal extends Modal {
+	plugin: TimeManagerPlugin;
+	onSave: () => void;
+
+	name = "";
+	type: "url" | "file" = "url";
+	value = "";
+	color = "";
+
+	constructor(app: App, plugin: TimeManagerPlugin, onSave: () => void) {
+		super(app);
+		this.plugin = plugin;
+		this.onSave = onSave;
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.createEl("h2", { text: "Add calendar source" });
+
+		new Setting(contentEl)
+			.setName("Display name")
+			.addText((t) =>
+				t.setPlaceholder("Work calendar").onChange((v) => (this.name = v))
+			);
+
+		new Setting(contentEl).setName("Source type").addDropdown((dd) => {
+			dd.addOption("url", "Remote URL (ICS/iCal feed)");
+			dd.addOption("file", "Local vault file (.ics)");
+			dd.setValue(this.type);
+			dd.onChange((v) => {
+				this.type = v as "url" | "file";
+				this.onOpen();
+			});
+		});
+
+		if (this.type === "url") {
+			new Setting(contentEl)
+				.setName("Calendar URL")
+				.setDesc(
+					"Paste the ICS/iCal URL. For Google: Settings → 'Secret address in iCal format'. " +
+					"For Apple iCloud: Share calendar → copy the public link."
+				)
+				.addText((t) =>
+					t
+						.setPlaceholder("https://calendar.google.com/…/basic.ics")
+						.onChange((v) => (this.value = v.trim()))
+				);
+		} else {
+			new Setting(contentEl)
+				.setName("Vault file path")
+				.setDesc("Path to a .ics file relative to your vault root.")
+				.addText((t) =>
+					t
+						.setPlaceholder("Calendars/work.ics")
+						.onChange((v) => (this.value = v.trim()))
+				);
+		}
+
+		// Auto-pick next color in the palette
+		const usedColors = new Set(
+			this.plugin.settings.calendarSources.map((s) => s.color)
+		);
+		const defaultColor =
+			CALENDAR_COLORS.find((c) => !usedColors.has(c)) ?? CALENDAR_COLORS[0];
+		this.color = defaultColor;
+
+		new Setting(contentEl)
+			.setName("Color")
+			.setDesc("Accent color for this calendar's events.")
+			.addColorPicker((cp) => {
+				cp.setValue(defaultColor);
+				cp.onChange((v) => (this.color = v));
+			});
+
+		new Setting(contentEl).addButton((btn) =>
+			btn
+				.setButtonText("Save")
+				.setCta()
+				.onClick(async () => {
+					if (!this.name.trim()) {
+						new Notice("Please enter a name.");
+						return;
+					}
+					if (!this.value.trim()) {
+						new Notice("Please enter a URL or file path.");
+						return;
+					}
+					const source: CalendarSource = {
+						id: crypto.randomUUID(),
+						name: this.name.trim(),
+						type: this.type,
+						value: this.value,
+						color: this.color || defaultColor,
+						enabled: true,
+					};
+					this.plugin.settings.calendarSources.push(source);
+					await this.plugin.saveSettings();
+					this.plugin.refreshCalendarViews();
 					this.onSave();
 					this.close();
 				})

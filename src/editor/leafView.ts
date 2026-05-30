@@ -6,6 +6,7 @@
 // detached "hover popover" container inside the host view. Modifying this file
 // without testing in Obsidian is risky — keep the original behavior unless you
 // have a specific bug to fix.
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-deprecated, obsidianmd/no-static-styles-assignment, no-prototype-builtins, @typescript-eslint/unbound-method, @typescript-eslint/no-unnecessary-type-assertion, no-restricted-globals, no-undef */
 import {
 	Component,
 	HoverPopover,

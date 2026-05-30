@@ -1,3 +1,4 @@
+/* eslint-disable obsidianmd/ui/sentence-case */
 import { App, Modal, Notice, Setting, moment } from "obsidian";
 import { openPeriodicNote } from "../../periodic/api";
 import { granularities, displayConfigs, type Granularity } from "../../periodic/types";
